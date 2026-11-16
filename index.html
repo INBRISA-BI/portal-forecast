@@ -26,6 +26,7 @@
   --accent:#5b97f0; --accent-soft:#1d2a3d; --s-real:#3987e5; --s-kam:#d95926; --s-sin:#4a5563; --s-alg:#3987e5; --s-inv:#8291a6;
   --good:#4cc775; --good-bg:#16301f; --warn:#e7b04a; --warn-bg:#33290f; --bad:#ec7b7b; --bad-bg:#3a1c1c; --neutral-bg:#222932; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--f-ui);margin:0}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--surface)}
 .wrap{max-width:1280px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -124,10 +125,11 @@ table.cap{border-collapse:collapse;width:100%;min-width:980px;font-size:13px}
 table.cap th,table.cap td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 table.cap th{position:sticky;top:0;background:var(--surface-2);font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.03em;font-weight:500;z-index:1}
 table.cap td.l,table.cap th.l{text-align:left}
+table.cap td.l .hint{white-space:normal;max-width:250px}
 table.cap tr.grp td{background:var(--surface-2);font-weight:600;text-align:left;cursor:pointer}
 table.cap tr.grp td small{font-weight:400;color:var(--ink-3);margin-left:8px}
 table.cap tfoot td{font-weight:600;background:var(--surface-2)}
-.inp{width:78px;text-align:right;border:1px solid var(--line-2);border-radius:6px;padding:4px 6px;background:var(--surface);font-variant-numeric:tabular-nums}
+.inp{width:72px;text-align:right;border:1px solid var(--line-2);border-radius:6px;padding:4px 6px;background:var(--surface);font-variant-numeric:tabular-nums}
 .inp.ed{border-color:var(--s-kam);background:color-mix(in srgb,var(--s-kam) 8%,var(--surface))}
 .hint{display:block;font-size:11px;color:var(--ink-3);margin-top:2px}
 .btn{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:500}
@@ -197,7 +199,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 </div>
 <header class="top">
   <div class="wrap">
-    <div class="who"><small>Forecast por distribuidor</small><h1 id="t-kam">Julio</h1></div>
+    <div class="who"><small>Forecast por distribuidor</small><h1 id="t-kam"></h1></div>
     <div class="ciclo" id="t-ciclo"></div>
     <div class="spacer"></div>
     <div class="estado" id="estado"><span class="dot"></span><span>Conectando…</span></div>
@@ -268,9 +270,9 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 <div class="toast" id="toast" hidden></div>
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
-<script src="config.js?v=aee2056f"></script>
+<script src="config.js?v=c3db3218"></script>
 <script src="app.js?v=4ee0b249"></script>
-<script src="portal.js?v=64991589"></script>
+<script src="portal.js?v=c38ec844"></script>
 </body>
 </html>
 

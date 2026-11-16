@@ -1,4 +1,4 @@
-/* Portal Forecast KAM: inicio de sesión de Microsoft, lectura de datos.json y guardado de captura.json en OneDrive.
+/* Portal Forecast KAM: inicio de sesión de Microsoft, lectura de datos.json y guardado de captura_<ciclo>.json en OneDrive.
    La página no trae datos: los lee de la carpeta que BI le compartió a cada KAM.
    La lógica del portal (app.js) es la misma del portal de revisión; aquí solo se le da de dónde leer y dónde guardar. */
 (function () {
@@ -60,24 +60,28 @@
 
   /* Carpetas de KAM que esta cuenta puede abrir. */
   async function carpetas() {
-    const out = [], conf = Object.entries(C.carpetas || {});
-    await Promise.all(conf.map(async ([kam, c]) => {
-      try { await gj(item(c, 'datos.json') + '?$select=id'); out.push({ kam, driveId: c.driveId, itemId: c.itemId }); } catch (e) { }
+    // La configuración solo trae identificadores; el nombre de cada carpeta (el KAM) se lee de OneDrive con la sesión iniciada.
+    const conf = Array.isArray(C.carpetas) ? C.carpetas : [];
+    const res = await Promise.all(conf.map(async (c, i) => {
+      try { const j = await gj(`/drives/${c.driveId}/items/${c.itemId}?$select=id,name`); return { kam: String(j.name).toUpperCase(), driveId: c.driveId, itemId: c.itemId, orden: i }; }
+      catch (e) { return null; }
     }));
+    const out = res.filter(Boolean);
     if (!out.length && C.rutaPropietario) {      // la cuenta dueña de la carpeta (BI) la encuentra por su ruta
       try {
         const j = await gj(`/me/drive/root:/${encodeURI(C.rutaPropietario)}:/children?$select=id,name,folder,parentReference`);
-        j.value.filter(x => x.folder).forEach(x => out.push({ kam: x.name, driveId: x.parentReference.driveId, itemId: x.id, propietario: true }));
+        j.value.filter(x => x.folder).forEach((x, i) => out.push({ kam: String(x.name).toUpperCase(), driveId: x.parentReference.driveId, itemId: x.id, orden: i, propietario: true }));
       } catch (e) { }
     }
-    const orden = ['JULIO', 'MARTHA', 'MONICA', 'FRANCISCO'];
-    return out.sort((a, b) => (orden.indexOf(a.kam) + 99 * (orden.indexOf(a.kam) < 0)) - (orden.indexOf(b.kam) + 99 * (orden.indexOf(b.kam) < 0)));
+    return out.sort((a, b) => a.orden - b.orden);
   }
 
-  /* ---------- guardado: un archivo captura.json por KAM ---------- */
+  /* ---------- guardado: un archivo por KAM y por ciclo (captura_2026-11.json); los ciclos anteriores quedan como historia ---------- */
+  const archCaptura = D => 'captura_' + (/^\d{4}-\d{2}$/.test(D.ciclo) ? D.ciclo : 'ciclo') + '.json';
   function almacen(c, D, previo, quien) {
-    const st = Object.assign({ kam: D.kam, ciclo: D.ciclo, estado: 'borrador', en: '', por: '', lineas: {} }, previo && previo.datos && previo.datos.ciclo === D.ciclo ? previo.datos : {});
-    let etag = previo && previo.datos && previo.datos.ciclo === D.ciclo ? previo.etag : null;
+    const ARCH = archCaptura(D);
+    const st = Object.assign({ kam: D.kam, ciclo: D.ciclo, estado: 'borrador', en: '', por: '', lineas: {} }, previo ? previo.datos : {});
+    let etag = previo ? previo.etag : null;
     const tocadas = new Set(), colL = [], docL = [];
     let enCurso = null, sucio = false;
     const emitCol = () => { const docs = Object.entries(st.lineas).map(([id, d]) => ({ id, data: () => d })); colL.forEach(cb => cb({ docs, size: docs.length, metadata: { fromCache: false } })); };
@@ -85,11 +89,11 @@
     async function escribir() {
       for (let intento = 0; ; intento++) {
         try {
-          const r = await graph('PUT', item(c, 'captura.json') + ':/content', JSON.stringify(st, null, 1), etag && intento < 3 ? { 'If-Match': etag } : null);
+          const r = await graph('PUT', item(c, ARCH) + ':/content', JSON.stringify(st, null, 1), etag && intento < 3 ? { 'If-Match': etag } : null);
           etag = (await r.json()).eTag; return;
         } catch (e) {
           if (e.status !== 412 || intento >= 3) throw e;
-          const rem = await leerJson(c, 'captura.json');           // otra pestaña guardó antes: se conserva lo suyo y gana lo editado aquí
+          const rem = await leerJson(c, ARCH);           // otra pestaña guardó antes: se conserva lo suyo y gana lo editado aquí
           if (rem) {
             etag = rem.etag;
             Object.entries(rem.datos.lineas || {}).forEach(([id, d]) => { if (!tocadas.has(id)) st.lineas[id] = d; });
@@ -151,7 +155,7 @@
   }
 
   async function demo() {
-    const kams = ['JULIO', 'MARTHA', 'MONICA', 'FRANCISCO'], kam = (PARAMS.get('kam') || 'JULIO').toUpperCase();
+    const kams = await (await fetch('/_local/')).json(), kam = (PARAMS.get('kam') || kams[0]).toUpperCase();
     const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
     iniciar(D, almacen(null, D, null, 'demo'), { correo: 'demo', nombre: 'Demostración' }, kams.map(k => ({ kam: k })), kam);
   }
@@ -189,7 +193,7 @@
       const t0 = performance.now();
       const datos = await leerJson(c, 'datos.json');
       if (!datos) throw new Error('No se encontró datos.json en la carpeta de ' + c.kam);
-      const captura = await leerJson(c, 'captura.json');
+      const captura = await leerJson(c, archCaptura(datos.datos));
       prueba.lectura = { kam: datos.datos.kam, ciclo: datos.datos.ciclo, productos: datos.datos.productos.length, ms: Math.round(performance.now() - t0), capturaPrevia: !!captura };
       if (LOCAL) {      // prueba de escritura, solo desde la PC de BI
         try {
