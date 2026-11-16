@@ -184,7 +184,24 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 #acceso .btn{padding:10px 18px;font-size:15px}
 #acceso-det{font-size:12px;color:var(--ink-3);margin-top:14px;word-break:break-word;white-space:pre-wrap}
 #sel-kam{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:6px 8px}
-#b-salir{padding:5px 10px;font-size:12.5px}
+#b-salir,#b-todos,#b-modo{padding:5px 10px;font-size:12.5px}
+.admin #persona span{display:none}
+@media (max-width:1480px){.admin .ciclo{display:none}}
+.solo-lectura .inp,.solo-lectura textarea{background:var(--surface-2);color:var(--ink-2);cursor:default}
+.solo-lectura #b-listo,.solo-lectura [data-usar-alg],.solo-lectura [data-volver]{opacity:.45;cursor:default}
+#inicio{max-width:860px;margin:0 auto;padding:48px 16px}
+#inicio small{color:var(--ink-3);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+#inicio h1{font-size:26px;margin:4px 0 8px}
+#inicio p{color:var(--ink-2);margin:0 0 20px}
+#inicio-lista{display:grid;gap:10px;margin-bottom:20px}
+.fila-kam{display:grid;grid-template-columns:150px 110px 1fr auto;gap:14px;align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);padding:16px 18px;text-decoration:none;color:inherit}
+.fila-kam:hover{border-color:var(--accent)}
+.fila-kam .nombre{font-family:var(--f-num);font-weight:600;font-size:18px}
+.fila-kam .pill{justify-self:start}
+.fila-kam .detalle{color:var(--ink-2);font-size:13px}
+.fila-kam .abrir{color:var(--accent);font-weight:500}
+@media (max-width:640px){.fila-kam{grid-template-columns:1fr auto}.fila-kam .detalle{grid-column:1/-1}.fila-kam .abrir{display:none}}
 </style>
 </head>
 <body class="cargando">
@@ -196,6 +213,13 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <button type="button" class="btn pri" id="acceso-btn" hidden></button>
     <div id="acceso-det"></div>
   </div>
+</div>
+<div id="inicio" hidden>
+  <small>Brinova · Forecast por KAM</small>
+  <h1>Vista de BI</h1>
+  <p id="inicio-quien"></p>
+  <div id="inicio-lista"></div>
+  <button type="button" class="btn" id="inicio-salir" hidden>Salir</button>
 </div>
 <header class="top">
   <div class="wrap">
@@ -272,7 +296,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
 <script src="app.js?v=4ee0b249"></script>
-<script src="portal.js?v=c38ec844"></script>
+<script src="portal.js?v=8ad57d5d"></script>
 </body>
 </html>
 

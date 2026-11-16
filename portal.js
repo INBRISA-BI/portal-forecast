@@ -78,7 +78,7 @@
 
   /* ---------- guardado: un archivo por KAM y por ciclo (captura_2026-11.json); los ciclos anteriores quedan como historia ---------- */
   const archCaptura = D => 'captura_' + (/^\d{4}-\d{2}$/.test(D.ciclo) ? D.ciclo : 'ciclo') + '.json';
-  function almacen(c, D, previo, quien) {
+  function almacen(c, D, previo, quien, lectura) {
     const ARCH = archCaptura(D);
     const st = Object.assign({ kam: D.kam, ciclo: D.ciclo, estado: 'borrador', en: '', por: '', lineas: {} }, previo ? previo.datos : {});
     let etag = previo ? previo.etag : null;
@@ -121,12 +121,15 @@
         };
       },
     };
-    if (DEMO) { db.doc = ruta => ({ set: () => Promise.resolve(), onSnapshot(cb) { cb({ exists: false }); } }); }
+    if (DEMO || lectura) {      // en solo lectura (BI mirando) y en demostración no se escribe nada
+      const real = db.doc;
+      db.doc = ruta => { const d = real(ruta); return { set: () => Promise.resolve(), onSnapshot: d.onSnapshot || (cb => cb({ exists: false })) }; };
+    }
     return db;
   }
 
   /* ---------- arranque del portal con los datos de un KAM ---------- */
-  function iniciar(D, db, persona, lista, actual) {
+  function iniciar(D, db, persona, lista, actual, lectura) {
     const ini = (persona.nombre || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
     const avatar = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><circle cx="24" cy="24" r="24" fill="#5F6B76"/><text x="24" y="30" font-family="Segoe UI,Arial" font-size="18" fill="#fff" text-anchor="middle">${ini}</text></svg>`);
     const user = {
@@ -139,25 +142,87 @@
     $('#acceso').hidden = true;
     document.body.classList.remove('cargando');
     window.iniciarPortal(D);
-    // selector de KAM (solo para quien tiene acceso a varias carpetas, es decir BI) y salida
+    // Quien tiene acceso a varias carpetas (BI) ve además: volver a la lista, cambiar de KAM y el modo (solo lectura o edición)
     const pe = $('#persona');
+    const boton = (id, texto, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.id = id; b.textContent = texto; b.onclick = fn; return b; };
     if (lista.length > 1) {
+      document.body.classList.add('admin');
       const sel = document.createElement('select'); sel.id = 'sel-kam'; sel.setAttribute('aria-label', 'KAM');
       lista.forEach(x => { const o = document.createElement('option'); o.value = x.kam; o.textContent = titulo(x.kam); o.selected = x.kam === actual; sel.appendChild(o); });
-      sel.onchange = () => { PARAMS.set('kam', sel.value); location.search = PARAMS.toString(); };
+      sel.onchange = () => { PARAMS.set('kam', sel.value); PARAMS.delete('editar'); location.search = PARAMS.toString(); };
+      pe.parentNode.insertBefore(boton('b-todos', 'Todos los KAM', () => { PARAMS.delete('kam'); PARAMS.delete('editar'); location.search = PARAMS.toString(); }), pe);
       pe.parentNode.insertBefore(sel, pe);
+      pe.parentNode.insertBefore(boton('b-modo', lectura ? 'Editar' : 'Dejar de editar', () => {
+        if (lectura && !confirm(`Vas a editar el forecast de ${titulo(D.kam)}. Lo que cambies queda guardado en su captura, a tu nombre.`)) return;
+        if (lectura) PARAMS.set('editar', '1'); else PARAMS.delete('editar');
+        location.search = PARAMS.toString();
+      }), pe);
     }
-    if (pca) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.id = 'b-salir'; b.textContent = 'Salir';
-      b.onclick = () => pca.logoutRedirect({ account: cuenta, postLogoutRedirectUri: location.origin + location.pathname });
-      pe.parentNode.appendChild(b);
-    }
+    if (pca) pe.parentNode.appendChild(boton('b-salir', 'Salir', salir));
+    if (lectura) soloLectura();
+  }
+  const salir = () => pca.logoutRedirect({ account: cuenta, postLogoutRedirectUri: location.origin + location.pathname });
+
+  /* BI entra a ver, no a capturar: las casillas no se pueden cambiar hasta que elige "Editar". */
+  function soloLectura() {
+    document.body.classList.add('solo-lectura');
+    const campo = t => t && t.matches && t.matches('.inp,textarea');
+    document.addEventListener('focusin', ev => { if (campo(ev.target)) ev.target.readOnly = true; }, true);
+    document.addEventListener('beforeinput', ev => { if (campo(ev.target)) ev.preventDefault(); }, true);
+    document.addEventListener('click', ev => {
+      const b = ev.target.closest && ev.target.closest('#b-listo,[data-usar-alg],[data-volver]');
+      if (b) { ev.stopPropagation(); ev.preventDefault(); }
+    }, true);
+    const pon = () => { $('#estado').innerHTML = '<span class="dot"></span><span>Solo lectura · vista de BI</span>'; };
+    [0, 300, 1500].forEach(ms => setTimeout(pon, ms));
+  }
+
+  /* ---------- inicio para BI: los KAM y el estado de su captura ---------- */
+  async function resumen(c) {
+    const out = { kam: c.kam, estado: 'sin' };
+    if (DEMO) return out;
+    try {
+      const j = await gj(`/drives/${c.driveId}/items/${c.itemId}/children?$select=name,lastModifiedDateTime`);
+      const d = j.value.find(x => x.name === 'datos.json'); out.datosEn = d && d.lastModifiedDateTime;
+      const caps = j.value.map(x => x.name).filter(n => /^captura_\d{4}-\d{2}\.json$/.test(n)).sort();
+      if (caps.length) {
+        const cap = await leerJson(c, caps[caps.length - 1]);
+        if (cap) {
+          const x = cap.datos, listo = x.estado === 'listo';
+          Object.assign(out, { estado: listo ? 'listo' : 'borrador', ciclo: x.ciclo, en: listo ? (x.listoEn || x.en) : x.en, por: listo ? (x.listoPor || x.por) : x.por, lineas: Object.keys(x.lineas || {}).length, valor: x.valorLista });
+        }
+      }
+    } catch (e) { out.error = String(e.message || e); }
+    return out;
+  }
+  function inicioBI(filas, persona) {
+    const fecha = iso => { const f = new Date(iso); return isNaN(f) ? '' : f.toLocaleDateString('es-CR', { day: 'numeric', month: 'short' }) + ' ' + f.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }); };
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const caja = $('#inicio-lista'); caja.textContent = '';
+    filas.forEach(f => {
+      const a = el('a', 'fila-kam'); const q = new URLSearchParams(PARAMS); q.set('kam', f.kam); a.href = '?' + q.toString();
+      a.appendChild(el('span', 'nombre', titulo(f.kam)));
+      const est = f.estado === 'listo' ? ['pill good', 'Listo'] : f.estado === 'borrador' ? ['pill warn', 'En borrador'] : ['pill', 'Sin capturar'];
+      a.appendChild(el('span', est[0], est[1]));
+      let det = f.error ? 'No se pudo leer su carpeta' : f.estado === 'sin' ? 'Todavía no ha cambiado nada en el portal' :
+        `Ciclo ${f.ciclo} · ${f.lineas} ${f.lineas === 1 ? 'línea cambiada' : 'líneas cambiadas'} · ${fecha(f.en)}${f.por ? ' · ' + f.por : ''}`;
+      if (f.datosEn) det += ` · datos del ${fecha(f.datosEn)}`;
+      a.appendChild(el('span', 'detalle', det));
+      a.appendChild(el('span', 'abrir', 'Abrir'));
+      caja.appendChild(a);
+    });
+    $('#inicio-quien').textContent = `Entraste como ${persona.nombre}. Esta cuenta ve a todos los KAM; cada KAM solo ve el suyo.`;
+    const s = $('#inicio-salir'); s.hidden = !pca; s.onclick = salir;
+    $('#acceso').hidden = true; $('#inicio').hidden = false;
+    document.title = 'Forecast · Vista de BI';
   }
 
   async function demo() {
-    const kams = await (await fetch('/_local/')).json(), kam = (PARAMS.get('kam') || kams[0]).toUpperCase();
+    const kams = await (await fetch('/_local/')).json(), lista = kams.map(k => ({ kam: k })), persona = { correo: 'demo', nombre: 'Demostración' };
+    const kam = (PARAMS.get('kam') || '').toUpperCase();
+    if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona);
     const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
-    iniciar(D, almacen(null, D, null, 'demo'), { correo: 'demo', nombre: 'Demostración' }, kams.map(k => ({ kam: k })), kam);
+    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'));
   }
 
   async function principal() {
@@ -187,7 +252,15 @@
       return;
     }
     const pedido = (PARAMS.get('kam') || '').toUpperCase();
+    const admin = lista.length > 1;                         // BI: acceso a varias carpetas
+    if (admin && !lista.some(x => x.kam === pedido)) {
+      informar(prueba);
+      acceso('Revisando el estado de cada KAM…', null);
+      inicioBI(await Promise.all(lista.map(resumen)), persona);
+      return;
+    }
     const c = lista.find(x => x.kam === pedido) || lista[0];
+    const lectura = admin && !PARAMS.has('editar');
     try {
       acceso(`Cargando el forecast de ${titulo(c.kam)}…`, null);
       const t0 = performance.now();
@@ -195,7 +268,7 @@
       if (!datos) throw new Error('No se encontró datos.json en la carpeta de ' + c.kam);
       const captura = await leerJson(c, archCaptura(datos.datos));
       prueba.lectura = { kam: datos.datos.kam, ciclo: datos.datos.ciclo, productos: datos.datos.productos.length, ms: Math.round(performance.now() - t0), capturaPrevia: !!captura };
-      if (LOCAL) {      // prueba de escritura, solo desde la PC de BI
+      if (LOCAL && PARAMS.has('prueba')) {      // prueba de escritura, solo desde la PC de BI y a pedido: http://localhost:5500/?kam=JULIO&prueba
         try {
           await graph('PUT', item(c, 'prueba_escritura.json') + ':/content', JSON.stringify({ prueba: true, en: prueba.en }));
           const v = await leerJson(c, 'prueba_escritura.json');
@@ -204,7 +277,7 @@
         } catch (e) { prueba.escritura = 'FALLA: ' + String(e.message || e); }
       }
       informar(prueba);
-      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo), persona, lista, c.kam);
+      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura);
     } catch (e) {
       prueba.error = String(e.message || e); informar(prueba);
       acceso('No se pudo cargar el forecast.', 'Intentar de nuevo', () => location.reload(), String(e.message || e));
