@@ -44,7 +44,13 @@
     return r;
   }
   const gj = async url => (await graph('GET', url)).json();
-  const item = (c, nombre) => `/drives/${c.driveId}/items/${c.itemId}:/${nombre}`;
+  /* Ruta dentro de la carpeta del KAM: cada tramo va codificado (detalle/DIFARR/x.json) y no se permite salir de la carpeta. */
+  const ruta = nombre => {
+    const t = String(nombre).split('/');
+    if (t.some(x => !x || x === '.' || x === '..')) throw new Error('Ruta no permitida: ' + nombre);
+    return t.map(encodeURIComponent).join('/');
+  };
+  const item = (c, nombre) => `/drives/${c.driveId}/items/${c.itemId}:/${ruta(nombre)}`;
 
   /* Lee un archivo JSON. Devuelve {datos, etag}; null si no existe. */
   async function leerJson(c, nombre) {
@@ -129,7 +135,23 @@
   }
 
   /* ---------- arranque del portal con los datos de un KAM ---------- */
-  function iniciar(D, db, persona, lista, actual, lectura) {
+  function iniciar(D, db, persona, lista, actual, lectura, c) {
+    /* Lectura a demanda de otros archivos de la carpeta del KAM (detalle/ del rastreo, linaje.json…), con el mismo leerJson.
+       Una vez por archivo y por sesión; null = el archivo no existe (404). En demostración se lee del servidor local. */
+    const cache = new Map();
+    window.portalLeer = nombre => {
+      const n = String(nombre);
+      if (!cache.has(n)) {
+        let pr;
+        try {
+          pr = DEMO ? fetch(`/_local/${encodeURIComponent(actual)}/${ruta(n)}`).then(r => r.ok ? r.json() : (r.status === 404 ? null : Promise.reject(new Error('HTTP ' + r.status))))
+            : c ? leerJson(c, n).then(x => x ? x.datos : null) : Promise.resolve(null);
+        } catch (e) { pr = Promise.reject(e); }
+        cache.set(n, pr.catch(e => { cache.delete(n); throw e; }));
+      }
+      return cache.get(n);
+    };
+    window.leerDetalle = nombre => window.portalLeer('detalle/' + nombre);
     const ini = (persona.nombre || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
     const avatar = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><circle cx="24" cy="24" r="24" fill="#5F6B76"/><text x="24" y="30" font-family="Segoe UI,Arial" font-size="18" fill="#fff" text-anchor="middle">${ini}</text></svg>`);
     const user = {
@@ -222,7 +244,7 @@
     const kam = (PARAMS.get('kam') || '').toUpperCase();
     if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona);
     const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
-    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'));
+    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'), null);
   }
 
   async function principal() {
@@ -277,7 +299,7 @@
         } catch (e) { prueba.escritura = 'FALLA: ' + String(e.message || e); }
       }
       informar(prueba);
-      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura);
+      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura, c);
     } catch (e) {
       prueba.error = String(e.message || e); informar(prueba);
       acceso('No se pudo cargar el forecast.', 'Intentar de nuevo', () => location.reload(), String(e.message || e));

@@ -1,238 +1,605 @@
 /* Generado por herramientas/construir_web.py desde 07 MOTOR FCST/portal. No editar aquí. */
 window.iniciarPortal = function (DATOS) {
 'use strict';
+/* Portal de forecast KAM · v0.30 (23/11/2026).
+   Funciona con datos.json actual (v1) y con el v2 de REV\10_CONTRATO_DATOS_v2.md: todo campo nuevo es opcional y tiene respaldo.
+   Regla del horizonte (informe 01): mes en curso = solo lectura con el valor oficial; se capturan los 5 meses siguientes. */
 /* ---------- datos y formatos ---------- */
 const D = DATOS;
 const P = D.productos;
-const MK = D.mesesKam, MH = D.mesesHist, MF = D.mesesFc;
-const CID = (D.kam || 'kam').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '') + '-' + D.ciclo;
+const MH = D.mesesHist, MF = D.mesesFc;
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'];
 const MESL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const ml = m => MES[+m.slice(5, 7) - 1] + ' ' + m.slice(2, 4);
-const mll = m => MESL[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4);
+const ml = m => m ? MES[+m.slice(5, 7) - 1] + ' ' + m.slice(2, 4) : '—';
+const mll = m => m ? MESL[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4) : '—';
+const addM = (m, k) => { const t = +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1) + k; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); };
+const finMes = m => m + '-' + String(new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate()).padStart(2, '0');
 const nf = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ok = v => v != null && isFinite(v);
 const fN = v => ok(v) ? nf.format(Math.round(v)) : '—';
+const fN1 = v => ok(v) ? (Math.abs(v) < 20 && Math.round(v) !== v ? nf1.format(v) : nf.format(Math.round(v))) : '—';
 const fC = v => { if (!ok(v)) return '—'; const a = Math.abs(v); if (a >= 1e6) return '₡' + nf1.format(v / 1e6) + ' M'; if (a >= 1e4) return '₡' + nf.format(v / 1e3) + ' mil'; return '₡' + nf.format(v); };
+const fC2 = v => ok(v) ? '₡' + nf2.format(v) : '—';
 const fCx = v => { const a = Math.abs(v); if (a >= 1e6) return nf1.format(v / 1e6) + ' M'; if (a >= 1e3) return nf.format(v / 1e3) + ' mil'; return nf.format(v); };
-const fP = v => ok(v) ? (v > 0 ? '+' : '') + nf.format(v * 100) + '%' : '—';
+const fP = v => { if (!ok(v)) return '—'; const r = Math.round(v * 100); return (r > 0 ? '+' : r < 0 ? '−' : '') + nf.format(Math.abs(r)) + ' %'; };
+const flecha = v => { if (!ok(v)) return ''; const r = Math.round(v * 100); return r > 0 ? '▲ ' : r < 0 ? '▼ ' : ''; };
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
 const sum = (o, ms) => ms.reduce((a, m) => a + ((o && o[m]) || 0), 0);
 const hora = () => new Date().toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
+const fechaCorta = f => f ? String(f).slice(8, 10) + '/' + String(f).slice(5, 7) + '/' + String(f).slice(0, 4) : '—';
+const rango = ms => ms.length ? (ms.length === 1 ? ml(ms[0]) : ml(ms[0]) + ' – ' + ml(ms[ms.length - 1])) : '—';
+const sid = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_');                       // id seguro para atributos (las clases tienen espacios y puntos)
+const sinTilde = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const KAMN = sinTilde(D.kam).toUpperCase();
+const CID = (D.kam || 'kam').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '') + '-' + D.ciclo;
+const ICO = { lock: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>' };
 
-const LINES = {};
+/* ---------- calendario del ciclo (D.calendario del generador; si no viene, la misma regla: mes del ciclo en curso + 5 meses de captura) ---------- */
+const CAL = D.calendario || null;
+const hoyMes = () => { const h = new Date(); return h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0'); };
+const MC = (CAL && CAL.mesEnCurso) || D.mesEnCurso || D.ciclo || hoyMes();          // mes en curso: se ve con su valor oficial, no se edita
+const NCAP = (CAL && (CAL.horizonte || (CAL.captura || []).length)) || 5;
+const MK = (CAL && Array.isArray(CAL.captura) && CAL.captura.length) ? CAL.captura.slice() : Array.from({ length: NCAP }, (_, i) => addM(MC, i + 1));   // meses que se capturan
+const MV = [MC].concat(MK);
+const CAP_HASTA = (CAL && CAL.capturaHasta) || null;                                 // fecha límite (solo si la manda BI)
+const VENCIDO = !!CAP_HASTA && new Date() > new Date(CAP_HASTA + 'T23:59:59-06:00');
+const editable = m => !VENCIDO && MK.includes(m);
+const OFICIAL_CURSO = !!(CAL || D.mesEnCurso);                                         // v2: el valor del mes en curso es el oficial (BHIST)
+function estadoMes(m) { if (m <= D.corte) return 'real'; if (m < MC) return 'pend'; if (m === MC) return 'curso'; return MK.includes(m) ? 'abierto' : 'ref'; }
+const EST = { real: 'Cerrado · venta real', pend: 'Cerrado · real pendiente', curso: 'En curso · no se captura', abierto: 'Abierto para captura', ref: 'Referencia · fuera de la captura (algoritmo)' };
+const EST_C = { real: 'real', pend: 'pendiente', curso: 'en curso', abierto: 'captura', ref: 'referencia' };
+const ULT_MF = MF[MF.length - 1];
+const mesesAnio = () => { const o = []; for (let m = D.corte.slice(0, 4) + '-01'; m <= ULT_MF; m = addM(m, 1)) o.push(m); return o; };
+const INCOMP = D.mesesIncompletos || {};
+const incompletosDe = cls => [...new Set(cls.flatMap(c => INCOMP[c] || []))];
+function incTxt(cl, m) {      // detalle del mes incompleto (v2: mesesIncompletosDetalle)
+  const x = ((D.mesesIncompletosDetalle || {})[cl] || {})[m]; if (!x) return 'mes incompleto';
+  return (x.estado || 'incompleto') + (x.motivo === 'dias' && x.dias != null ? `: ${x.dias} días con factura (lo normal son ${x.diasMediana})` : x.razon != null ? `: ${nf.format(x.razon * 100)} % de lo normal (${fN(x.pz)} pz contra una mediana de ${fN(x.mediana12)})` : '');
+}
+
+const LINES = {}, PID = {};
 P.forEach(p => {
+  PID[p.id] = p;
   p.codigos.forEach(c => { c.id = p.clase + '__' + c.cod; LINES[c.id] = { p, c }; });
   p.cap = p.codigos.filter(c => c.captura);
   p.princ = p.codigos.find(c => c.cod === p.principal) || p.codigos[0];
+  p.txt = (p.nombre + ' ' + p.grupo + ' ' + p.cat + ' ' + p.codigos.map(c => c.cod + ' ' + c.desc).join(' ')).toLowerCase();
 });
 
-/* ---------- estado ---------- */
-/* tipo de fuente de cada clase: 'sell through' (distribuidor), 'sell out' (cadena) o 'sell in directo' */
+/* ---------- origen de la demanda por cliente ---------- */
+const TIPO = {
+  'sell through': { c: 'Sell through', d: 'venta del distribuidor a sus clientes (su reporte)' },
+  'sell out': { c: 'Sell out', d: 'venta de las tiendas al consumidor (escáner de la cadena)' },
+  'sell in directo': { c: 'Sell in directo', d: 'facturación directa de Brinova al cliente' },
+  'mixto': { c: 'Mixto', d: 'más de una fuente' },
+};
 const tipoDe = c => (D.distribuidores[c] || {}).tipo || 'sell in directo';
-const tipoSel = () => { if (S.dist !== 'TODOS') return tipoDe(S.dist); const t = [...new Set(D.clases.map(tipoDe))]; return t.length === 1 ? t[0] : 'mixto'; };
-const nomVenta = t => t === 'sell in directo' ? 'Venta (facturación directa)' : t === 'sell out' ? 'Venta al consumidor' : t === 'mixto' ? 'Venta del cliente' : 'Venta del distribuidor';
-const S = { dist: 'TODOS', vista: 'tendencia', unidad: 'form', q: '', cat: '', orden: 'valor', chip: 'todos', q2: '', chip2: 'todos', abierto: null, desde: '2025-01' };
+/* mezcla de fuentes de un cliente: v2 trae distribuidores[c].origen [{tipo, pz12, pct}] y .mixto; PANAMA = sell through FEDURO + sell in directo XTRA */
+function mezclaDe(c) {
+  const d = D.distribuidores[c] || {};
+  if (d.mixto && Array.isArray(d.origen) && d.origen.length > 1) { const o = {}; d.origen.forEach(x => { o[x.tipo] = x.pct; }); return o; }
+  return null;
+}
+function fuenteTxt(c) {
+  const mz = mezclaDe(c);
+  if (mz) return Object.entries(mz).sort((a, b) => b[1] - a[1]).map(([t, v]) => (TIPO[t] ? TIPO[t].c : t) + (ok(v) ? ' ' + nf.format(v * 100) + ' %' : '')).join(' + ');
+  if (c === 'PANAMA') return TIPO[tipoDe(c)].c + ' + sell in directo (XTRA)';
+  return (TIPO[tipoDe(c)] || TIPO['sell in directo']).c;
+}
+function fuenteLarga(c) {
+  const d = D.distribuidores[c] || {}, t = tipoDe(c), fu = (d.fuente || []).filter(x => x && x !== c);
+  let s = t === 'sell through' ? `Reporte de ventas de ${esc(fu.length ? fu.join('/') + ' (' + c + ')' : c)} a sus clientes (sell through), convertido a piezas Brinova (MAESTRO_PRODUCTOS · UNIDAD ESTANDAR; T_UNIDAD_REPORTE si reporta cajas)`
+    : t === 'sell out' ? `Escáner de las tiendas de ${esc(c)} (sell out), convertido a piezas Brinova`
+    : `Facturación directa de Brinova a ${esc(c)} (sell in directo): aquí la demanda es lo que Brinova facturó, así que la razón contra el sell in siempre da 1`;
+  if (mezclaDe(c) || (c === 'PANAMA' && !d.origen)) s += '. Además se suma lo que Brinova le factura directo a Supermercados Xtra (marca LIKE), que no pasa por FEDURO' + (mezclaDe(c) ? ' (' + esc(fuenteTxt(c)) + ' de las piezas de 12 meses)' : '');
+  if (d.linaje) {
+    const lj = d.linaje;
+    if (lj.reporta && lj.reporta.length) s += '. Reporta: ' + esc(lj.reporta.join(' · '));
+    if (lj.conversion && lj.conversion.length) s += '. Conversión a piezas: ' + esc(lj.conversion.join(' · '));
+    if (lj.unidadReporte && lj.unidadReporte.length) s += '. Unidad del reporte: ' + esc(lj.unidadReporte.join(' · '));
+  }
+  return s;
+}
+const tipoSel = () => { if (S.dist !== 'TODOS') return mezclaDe(S.dist) || S.dist === 'PANAMA' ? 'mixto' : tipoDe(S.dist); const t = [...new Set(D.clases.map(tipoDe))]; return t.length === 1 && !D.clases.includes('PANAMA') ? t[0] : 'mixto'; };
+
+/* ---------- estado ---------- */
+const S = { dist: 'TODOS', vista: 'tendencia', unidad: 'form', q: '', cat: '', orden: 'valor', chip: 'todos', lim: 60, q2: '', chip2: 'todos', capLim: 25, capVista: 'abiertos', abierto: null, desde: '2025-01', foco: null };
 let remote = {}, local = {}, uid = null, db = null, userCap = null, envio = null;
 const LS = 'portal-' + CID;
 try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); if (g && g.unidad) S.unidad = g.unidad; } catch (e) { }
 
 /* ---------- valores efectivos ---------- */
+const vig = (c, m) => (c.kam && c.kam[m] != null) ? c.kam[m] : null;          // forecast vigente: tu formulario (mes en curso = oficial en v2)
 function kamU(c, m) {
-  const l = local[c.id]; if (l && l.meses && l.meses[m] != null) return l.meses[m];
-  const r = remote[c.id]; if (r && r.meses && r.meses[m] != null) return r.meses[m];
-  return c.kam[m] || 0;
+  if (MK.includes(m)) {                                                         // solo los meses de captura toman lo editado; el resto es el vigente
+    const l = local[c.id]; if (l && l.meses && l.meses[m] != null) return l.meses[m];
+    const r = remote[c.id]; if (r && r.meses && r.meses[m] != null) return r.meses[m];
+  }
+  return vig(c, m) || 0;
 }
-const editado = (c, m) => kamU(c, m) !== (c.kam[m] || 0);
+const editado = (c, m) => MK.includes(m) && kamU(c, m) !== (vig(c, m) || 0);
 const precioU = (p, c) => c.precio != null ? c.precio : (p.precioPz != null && c.pzPorU ? p.precioPz * c.pzPorU : null);
 const kamPz = (p, m) => p.codigos.reduce((a, c) => a + kamU(c, m) * (c.pzPorU || 0), 0);
 const kamVal = (p, m) => p.codigos.reduce((a, c) => { const pr = precioU(p, c); return a + (pr ? kamU(c, m) * pr : 0); }, 0);
+const kamPzM = (p, ms) => ms.reduce((a, m) => a + kamPz(p, m), 0);
+const kamValM = (p, ms) => ms.reduce((a, m) => a + kamVal(p, m), 0);
 const pv = (p, pz) => p.precioPz != null ? (pz || 0) * p.precioPz : 0;
-const algPz6 = p => sum(p.alg, MK);
-const kamPz6 = p => MK.reduce((a, m) => a + kamPz(p, m), 0);
+const algPz = (p, ms) => sum(p.alg, ms);
+const algPz6 = p => algPz(p, MK);                                                // nombre histórico: ahora suma la ventana real (MK)
+const kamPz6 = p => kamPzM(p, MK);
 const tend = p => p.d3ly > 0 ? p.d3 / p.d3ly - 1 : null;
 const dias = p => p.inv ? p.inv.doh : null;
-function dif(p) { const a = algPz6(p), k = kamPz6(p); if (a <= 0 && k <= 0) return null; if (a <= 0) return null; return k / a - 1; }
+function dif(p) { const a = algPz6(p), k = kamPz6(p); if (a <= 0) return null; return k / a - 1; }
 const fac = p => S.unidad === 'pz' ? 1 : (p.uPz || 1);
+function plural(pres) { const pr = String(pres || 'caja').toLowerCase(); return ({ caja: 'cajas', unidad: 'unidades', 'pack oferta': 'packs', bulto: 'bultos', 'bulto/caja': 'cajas', display: 'displays', kg: 'kg' })[pr] || pr; }
+const presTxt = c => { const t = String(c.tipo || c.pres || 'unidad').toLowerCase(); return t.charAt(0).toUpperCase() + t.slice(1); };   // presentación: la del formulario (TIPO) o la de T_SKU
 function uNom(p) {
   if (S.unidad === 'pz') return 'piezas';
-  if (!p.uPz || p.uPz === 1) return 'unidades';
-  const pr = (p.princ.pres || 'Caja').toLowerCase();
-  const pl = pr === 'caja' ? 'cajas' : pr === 'unidad' ? 'unidades' : pr === 'pack oferta' ? 'packs' : pr;
-  return pl + ' de ' + fN(p.uPz) + ' pz';
+  if (!p.uPz || p.uPz === 1) return 'unidades (1 pz)';
+  return plural(p.princ.tipo || p.princ.pres) + ' de ' + fN(p.uPz) + ' pz';
 }
+const uNomGlobal = () => S.unidad === 'pz' ? 'cantidades en piezas (unidad estándar)' : 'cantidades en la unidad de tu formulario';
+const cNom = c => presTxt(c) + (c.pzPorU > 1 ? ' de ' + fN(c.pzPorU) + ' pz' : (c.pzPorU === 1 ? ' (1 pz)' : ' (sin factor de piezas)'));
+const uCod = c => c.pzPorU > 1 ? plural(c.tipo || c.pres) + ' de ' + fN(c.pzPorU) + ' pz' : 'unidades (1 pz)';
+/* sell in del código en su unidad: v2 trae codigos[].sellInU (el UNI REAL del formulario); si no, el del producto en el código principal */
+function siU(p, c, m) { if (c.sellInU && c.sellInU[m] != null) return c.sellInU[m]; if (c.cod === p.principal && c.pzPorU && p.sellIn[m] != null) return p.sellIn[m] / c.pzPorU; return null; }
+
+/* ---------- inventario: umbrales del reporte de distribuidores en Power BI (15/30 riesgo, 90 sobrestock, 180 exceso) ---------- */
+const riesgo = cl => { const d = D.distribuidores[cl] || {}; if (d.umbralRiesgo) return d.umbralRiesgo; return (d.exportacion || KAMN === 'MONICA') ? 30 : 15; };
+function estInv(d, cl) { if (d == null) return null; if (d < riesgo(cl)) return ['bad', 'Riesgo de quiebre']; if (d > 180) return ['warn', 'Exceso']; if (d > 90) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
+const pill = (cls, t) => `<span class="pill ${cls || ''}">${esc(t)}</span>`;
+function pillTend(t) { if (t == null) return pill('', 'sin base'); return pill(t >= 0.05 ? 'good' : t <= -0.1 ? 'bad' : '', flecha(t) + fP(t)); }
+function pillDias(d, cl) { if (d == null) return pill('', 'sin dato'); const e = estInv(d, cl); return pill(e[0], fN(d) + ' días · ' + e[1].toLowerCase()); }
+function pillDif(d) { if (d == null) return pill('', '—'); return pill(Math.abs(d) <= 0.1 ? 'good' : Math.abs(d) <= 0.3 ? '' : 'warn', flecha(d) + fP(d)); }
+
+/* ---------- alertas del producto y avisos de la captura ---------- */
+const inter = k => k && (k.inter != null ? !!k.inter : k.mv12 <= ((D.algoritmo || {}).intermitenteMeses || 4));   // intermitente: compró en N meses o menos del año (v1: 4, v2: 8)
 function alertas(p) {
   const a = [];
   if (p.cierre !== 'OK') a.push(['bad', p.cierre === 'REVISAR' ? 'Dato a revisar' : p.cierre.charAt(0) + p.cierre.slice(1).toLowerCase()]);
-  const d = dias(p);
-  if (d != null) { if (d < 15) a.push(['warn', 'Inventario bajo']); else if (d > 90) a.push(['warn', 'Inventario alto']); }
+  const e = estInv(dias(p), p.clase); if (e && e[0] !== 'good') a.push([e[0] === 'bad' ? 'bad' : 'warn', e[1]]);
   const df = dif(p);
-  if (df != null && Math.abs(df) > 0.5 && pv(p, algPz6(p) + kamPz6(p)) > 300000) a.push(['warn', 'Tu forecast ' + (df > 0 ? 'arriba' : 'abajo') + ' del algoritmo']);
+  if (df != null && Math.abs(df) > 0.5 && pv(p, algPz6(p) + kamPz6(p)) > 300000) a.push(['warn', 'Tu forecast muy ' + (df > 0 ? 'arriba' : 'abajo') + ' del algoritmo']);
   if (p.precioPz == null) a.push(['bad', 'Sin precio']);
   return a;
 }
-const pill = (cls, t) => `<span class="pill ${cls || ''}">${esc(t)}</span>`;
-function pillTend(t) { if (t == null) return pill('', 'sin base'); return pill(t >= 0.05 ? 'good' : t <= -0.1 ? 'bad' : '', fP(t)); }
-function pillDias(d) { if (d == null) return pill('', 'sin dato'); return pill(d < 15 ? 'warn' : d > 90 ? 'warn' : 'good', fN(d) + ' días'); }
-function pillDif(d) { if (d == null) return pill('', '—'); return pill(Math.abs(d) <= 0.1 ? 'good' : Math.abs(d) <= 0.3 ? '' : 'warn', fP(d)); }
-
-/* ---------- gráficos (SVG propio, un solo eje) ---------- */
-function niceMax(v) { if (v <= 0) return 1; const e = Math.pow(10, Math.floor(Math.log10(v))); for (const f of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (f * e >= v) return f * e; return 10 * e; }
-const ro = new ResizeObserver(es => es.forEach(e => { if (e.target._w !== e.contentRect.width) dibujar(e.target); }));
-function grafico(el, o) { el._o = o; if (!el._obs) { ro.observe(el); el._obs = true; } dibujar(el); }
-function valS(s, m) { if (!s.dom.has(m)) return null; const v = s.data[m]; return v == null ? (s.tipo === 'dot' ? null : 0) : v; }
-function dibujar(el) {
-  const o = el._o; if (!o) return;
-  const W = Math.max(300, el.clientWidth || 640); el._w = el.clientWidth;
-  const H = o.h || 260, L = o.izq || 58, R = 12, T = 14, B = 26;
-  const ms = o.meses, n = ms.length, bw = (W - L - R) / n;
-  o.series.forEach(s => { if (!(s.dom instanceof Set)) s.dom = new Set(s.dom); });
-  let mx = 0; o.series.forEach(s => ms.forEach(m => { const v = valS(s, m); if (v != null && v > mx) mx = v; }));
-  const top = niceMax(mx * 1.05), y = v => T + (H - T - B) * (1 - v / top), x = i => L + bw * (i + 0.5);
-  let g = '';
-  for (let k = 0; k <= 4; k++) {
-    const v = top * k / 4, yy = y(v).toFixed(1);
-    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${k ? 'var(--line)' : 'var(--line-2)'}" stroke-width="1"/>`;
-    g += `<text x="${L - 6}" y="${(+yy + 4).toFixed(1)}" text-anchor="end">${esc(o.eje(v))}</text>`;
-  }
-  const paso = [1, 2, 3, 6, 12].find(s => s * bw >= 42) || 12;
-  ms.forEach((m, i) => { if ((+m.slice(5, 7) - 1) % paso === 0) g += `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${ml(m)}</text>`; });
-  const ci = ms.indexOf(o.corte);
-  if (ci >= 0 && ci < n - 1) {
-    const xx = (L + bw * (ci + 1)).toFixed(1);
-    g += `<line x1="${xx}" x2="${xx}" y1="${T - 6}" y2="${H - B}" stroke="var(--ink-3)" stroke-dasharray="2 3"/>`;
-    g += `<text x="${+xx + 5}" y="${T + 2}">pronóstico</text>`;
-  }
-  o.series.filter(s => s.tipo === 'col').forEach(s => {
-    const w = Math.max(2, Math.min(bw * 0.62, 16)), r = Math.min(3, w / 2);
-    ms.forEach((m, i) => {
-      const v = valS(s, m); if (!v || v <= 0) return;
-      const x0 = x(i) - w / 2, y0 = y(v), yb = y(0), rr = Math.min(r, yb - y0);
-      g += `<path d="M${x0.toFixed(1)} ${yb.toFixed(1)}V${(y0 + rr).toFixed(1)}Q${x0.toFixed(1)} ${y0.toFixed(1)} ${(x0 + rr).toFixed(1)} ${y0.toFixed(1)}H${(x0 + w - rr).toFixed(1)}Q${(x0 + w).toFixed(1)} ${y0.toFixed(1)} ${(x0 + w).toFixed(1)} ${(y0 + rr).toFixed(1)}V${yb.toFixed(1)}Z" fill="${s.color}"/>`;
-    });
+/* informe 03 §G y contrato v2 (reglasAvisos): por código, tu número de un mes de captura en piezas > 3 × el algoritmo del código;
+   código que lleva 1 a 5 meses sin venta; o 6+ meses sin venta (algoritmo en 0) con forecast. Se recalcula en vivo mientras escribes. */
+const RA = D.reglasAvisos || {}, X3 = (RA.x3alg && RA.x3alg.factor) || 3, SV = Object.assign({ min: 1, max: 5 }, RA.sinVenta || {});
+function avisosCaptura(p) {
+  const out = [], maxP = Math.max(0, ...MH.map(m => p.real[m] || 0));
+  p.codigos.forEach(c => {
+    const k = c.calc; if (!k) return;
+    const fz = c.pzPorU || 0, mx = ((c.avisos || []).find(a => a.tipo === 'x3alg' && a.maxHistPz != null) || {}).maxHistPz ?? maxP;
+    const fuertes = MK.filter(m => { const a = (k.fc && k.fc[m]) || 0; return fz && a > 0 && kamU(c, m) * fz > X3 * a; });
+    if (fuertes.length) {
+      const sobreMax = fuertes.some(m => kamU(c, m) * fz > X3 * mx);
+      out.push([sobreMax ? 'bad' : 'warn', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${nf.format(X3)} veces el algoritmo` + (sobreMax ? ` y más de ${nf.format(X3)} veces su mejor mes de venta (${fN(mx)} pz): deja un comentario con el motivo` : '')]);
+    }
+    const tiene = MK.some(m => kamU(c, m) > 0);
+    if (k.sinVenta >= SV.min && k.sinVenta <= SV.max && tiene) out.push(['warn', `${c.cod}: hace ${fN(k.sinVenta)} ${k.sinVenta === 1 ? 'mes' : 'meses'} que no vende (última venta ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). ¿Sigue activo?`]);
+    if (k.estado !== 'ACTIVO' && tiene) out.push(['bad', `${c.cod}: lleva ${fN(k.sinVenta)} meses sin venta y el algoritmo lo deja en 0, pero tu forecast tiene unidades. Revisa si sigue vigente`]);
   });
-  o.series.filter(s => s.tipo === 'line' || s.tipo === 'dash').forEach(s => {
+  return out;
+}
+/* tu forecast pasado contra la venta: el del generador (precisionKam, en piezas) si viene; si no, se calcula aquí a precio de lista */
+function precKam(dist) {
+  const pk = D.precisionKam; if (!pk) return null;
+  const x = dist === 'TODOS' ? pk.total : (pk.porClase || {})[dist];
+  return x ? Object.assign({ desde: pk.desde, hasta: pk.hasta, regla: pk.regla }, x) : null;
+}
+function sesgoProducto(p) {
+  let k = 0, r = 0; MH.slice(-12).forEach(m => { const f = p.kamPasadoPz && p.kamPasadoPz[m]; if (f) { k += f; r += p.real[m] || 0; } });
+  return r > 0 ? k / r - 1 : null;
+}
+
+/* ---------- totales de una selección (todo a precio de lista para poder sumar productos distintos) ---------- */
+function resumen(sel) {
+  const L12 = MH.slice(-12);
+  const r = { alg: 0, kam: 0, pzk: 0, pza: 0, d3: 0, d3ly: 0, inv: 0, d3st: 0, kp: 0, rl: 0, si: 0, err: 0, curso: 0, avance: 0, conAvance: 0, sinPrecio: 0, L12 };
+  sel.forEach(p => {
+    r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); r.pzk += kamPz6(p); r.pza += algPz6(p);
+    r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly);
+    if (p.inv) { r.inv += pv(p, p.inv.pz); r.d3st += pv(p, p.d3); }
+    L12.forEach(m => { const k = p.kamPasadoPz && p.kamPasadoPz[m]; if (k) { const re = p.real[m] || 0; r.kp += pv(p, k); r.rl += pv(p, re); r.si += pv(p, p.sellIn[m] || 0); r.err += pv(p, Math.abs(re - k)); } });
+    r.curso += kamVal(p, MC);
+    const av = p.avanceSellInPz && p.avanceSellInPz[MC]; if (av != null) { r.avance += pv(p, av); r.conAvance++; }
+    if (p.precioPz == null) r.sinPrecio++;
+  });
+  r.doh = r.d3st > 0 ? r.inv / (r.d3st / 91.2) : null;
+  r.sesgo = r.rl > 0 ? r.kp / r.rl - 1 : null;
+  r.sesgoSI = r.si > 0 ? r.kp / r.si - 1 : null;
+  r.prec = r.kp > 0 ? Math.max(0, 1 - r.err / r.kp) : null;
+  const dist = sel.length && sel.every(p => p.clase === sel[0].clase) && D.clases.length > 1 ? sel[0].clase : 'TODOS';
+  const pk = sel.length === P.filter(p => dist === 'TODOS' || p.clase === dist).length ? precKam(dist) : null;
+  if (pk) { r.pk = pk; r.sesgo = pk.sesgoReal; r.sesgoSI = pk.sesgoSellIn; r.prec = pk.accReal == null ? null : Math.max(0, pk.accReal); r.L12 = [pk.desde, pk.hasta]; }
+  r.difK = r.alg > 0 ? r.kam / r.alg - 1 : null;
+  return r;
+}
+
+/* ---------- "¿De dónde sale este número?" (un solo <dialog>, contenido por clave) ---------- */
+const nb = (key, txt, extra = '') => `<button type="button" class="n" data-exp="${key}" ${extra}>${txt}</button>`;
+function abrirExp(o) {
+  if (!o) return;
+  $('#dx-t').textContent = o.t;
+  let h = `<p class="dx-v">${esc(o.v)}<span>${esc(o.u || '')}</span></p>`;
+  if (o.que) h += `<section><h3>Qué es</h3><p>${o.que}</p></section>`;
+  if (o.formula || o.filas) {
+    h += '<section><h3>Cómo se calcula</h3>';
+    if (o.formula) h += `<div class="formula">${o.formula}</div>`;
+    if (o.filas && o.filas.length) h += '<table class="dx-tab"><tbody>' + o.filas.map(f => `<tr${f[2] ? ' class="tot"' : ''}><td>${f[0]}</td><td>${f[1]}</td></tr>`).join('') + '</tbody></table>';
+    h += '</section>';
+  }
+  if (o.fuentes) h += '<section><h3>De dónde vienen los datos</h3><ul>' + o.fuentes.map(f => `<li>${f}</li>`).join('') + '</ul></section>';
+  if (o.tec) h += `<p class="tec">Campo técnico: ${o.tec}</p>`;
+  if (o.nota) h += `<p class="aviso info">${o.nota}</p>`;
+  $('#dx-b').innerHTML = h;
+  const d = $('#dx'); if (!d.open) d.showModal();
+}
+const FUENTE_UNID = 'Tu formulario vigente (02 FORMULARIOS FCST CARGA MENSUAL, columnas de unidades por mes) más lo que cambies en este portal (captura_&lt;ciclo&gt;.json en tu carpeta)';
+const FUENTE_ALG = 'Algoritmo del motor (07 MOTOR FCST, notebook 02 → FCST_ALGORITMO.xlsx, columna FCST_PIEZAS)';
+const FUENTE_PRECIO = 'Precio de lista por distribuidor (MAESTROS.xlsx, hoja PRECIOS; respaldo FCST_ALGORITMO). Precio por pieza = precio del código principal ÷ sus piezas';
+const distTxt = () => S.dist === 'TODOS' ? 'todos tus distribuidores' : S.dist;
+/* versionDatos: v2 = {sello, generado, archivos:[{clave, archivo, modificado}]}; se acepta también {archivo: fecha} */
+function filasVersion() {
+  const v = D.versionDatos; if (!v) return [];
+  if (Array.isArray(v.archivos)) return v.archivos.map(a => [esc(a.clave) + `<br><span class="small muted">${esc(String(a.archivo || '').split('/').slice(-2).join('/'))}</span>`, esc(String(a.modificado || '—').slice(0, 16))]);
+  return Object.entries(v).filter(([, f]) => typeof f !== 'object').map(([k, f]) => [esc(k), esc(String(f).replace('T', ' ').slice(0, 16))]);
+}
+const selDist = () => P.filter(enDist);
+const EXP = {
+  k_kam() {
+    const sel = selDist(), r = resumen(sel), top = sel.map(p => [p, kamValM(p, MK)]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return { t: 'Tu forecast · meses de captura', v: fC(r.kam), u: 'colones a precio de lista',
+      que: `Lo que esperas vender en <b>${rango(MK)}</b> en ${esc(distTxt())}: tu formulario vigente más lo que cambies aquí. No incluye ${mll(MC)} (mes en curso, solo lectura).`,
+      formula: 'Σ por código y mes de (unidades del código × precio de lista del código)',
+      filas: [['En piezas (unidad estándar)', fN(r.pzk) + ' pz'], ['Algoritmo, mismo periodo', fC(r.alg)], ['Diferencia contra el algoritmo', flecha(r.difK) + fP(r.difK)]]
+        .concat(top.map(([p, v]) => ['· ' + esc(p.nombre) + ' (' + esc(p.clase) + ')', fC(v)])),
+      fuentes: [FUENTE_UNID, FUENTE_PRECIO], tec: 'productos[].codigos[].kam (unidades del formulario) × .precio', nota: r.sinPrecio ? `${r.sinPrecio} productos no tienen precio de lista: no suman colones.` : '' };
+  },
+  k_alg() {
+    const sel = selDist(), r = resumen(sel);
+    return { t: 'Algoritmo · meses de captura', v: fC(r.alg), u: 'colones a precio de lista',
+      que: `Lo que propone el motor para <b>${rango(MK)}</b> en ${esc(distTxt())}, a partir de la demanda real. Es tu punto de partida, no tu número.`,
+      formula: 'Σ por producto y mes de (piezas del algoritmo × precio de lista por pieza)',
+      filas: [['En piezas (unidad estándar)', fN(r.pza) + ' pz'], ['Productos', fN(sel.length)], ['Cálculo por producto', 'base × temporada, con reglas (ver “Cómo se calcula”)']],
+      fuentes: [FUENTE_ALG, FUENTE_PRECIO], tec: 'productos[].alg (piezas por mes) × productos[].precioPz' };
+  },
+  k_venta3() {
+    const sel = selDist(), r = resumen(sel), tri = MH.slice(-3), ly = tri.map(m => addM(m, -12)), t = r.d3ly ? r.d3 / r.d3ly - 1 : null;
+    return { t: 'Venta real de los últimos 3 meses', v: fC(r.d3), u: 'colones a precio de lista',
+      que: `La demanda real de ${rango(tri)} en ${esc(distTxt())}, comparada con los mismos meses del año anterior.`,
+      formula: 'Σ productos (piezas vendidas en 3 meses × precio de lista por pieza)',
+      filas: [[rango(tri), fC(r.d3)], [rango(ly), fC(r.d3ly)], ['Variación', flecha(t) + fP(t), 1]],
+      fuentes: [...new Set(sel.map(p => p.clase))].slice(0, 8).map(fuenteLarga),
+      tec: 'productos[].d3 y .d3ly (piezas) × .precioPz', nota: 'Se valora a precio de lista para poder sumar productos distintos; las piezas de cada producto están en su detalle.' };
+  },
+  k_doh() {
+    const sel = selDist(), r = resumen(sel), st = sel.filter(p => p.inv);
+    const cl = [...new Set(st.map(p => p.clase))];
+    return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : fN(r.doh) + ' días', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
+      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor en estos datos.' : `Cuántos días le alcanza al distribuidor el inventario del último corte, al ritmo de venta de los últimos 3 meses. ${st.length} productos con inventario.`,
+      formula: 'inventario del último corte ÷ (venta de los últimos 3 meses ÷ 91,2 días)',
+      filas: r.doh == null ? [] : [['Inventario (a precio de lista)', fC(r.inv)], ['Venta 3 meses de esos productos', fC(r.d3st)], ['Venta diaria', fC(r.d3st / 91.2)], ['Días de inventario', fN(r.doh), 1]],
+      fuentes: ['Reporte de inventario de cada distribuidor (inventario unificado), convertido a piezas con la misma regla de unidades que la venta', 'Cortes: ' + (cl.length ? cl.map(c => esc(c) + ' ' + fechaCorta(D.distribuidores[c].invFecha) + ' (' + D.distribuidores[c].invCortes + ' cortes)').join(' · ') : '—')],
+      nota: `Umbrales del reporte de distribuidores en Power BI: menos de ${KAMN === 'MONICA' ? '30 días (exportación)' : '15 días'} = riesgo de quiebre; más de 90 = sobrestock; más de 180 = exceso.` };
+  },
+  k_sesgo() {
+    const sel = selDist(), r = resumen(sel), pk = r.pk;
+    if (pk) return { t: 'Tu forecast pasado contra la venta', v: fP(pk.sesgoReal), u: `sesgo, ${ml(pk.desde)} – ${ml(pk.hasta)} (${pk.meses} meses con forecast)`,
+      que: `Compara lo que pusiste en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, en ${esc(distTxt())}. Positivo = pronosticaste de más. Entran los meses en que diste forecast y todos los productos del portal de esa clase.`,
+      formula: 'sesgo = Σ forecast ÷ Σ venta real − 1 · error (WAPE) = Σ |venta real − forecast| ÷ Σ venta real · precisión = 1 − Σ |venta real − forecast| ÷ Σ forecast (FCST ACC de Power BI)',
+      filas: [['Tu forecast de esos meses', fN(pk.fcstPz) + ' pz'], ['Venta real (demanda) de esos meses', fN(pk.realPz) + ' pz'], ['Sesgo contra la venta', flecha(pk.sesgoReal) + fP(pk.sesgoReal), 1], ['Error típico (WAPE) contra la venta', pk.wapeReal == null ? '—' : nf.format(pk.wapeReal * 100) + ' %'], ['Precisión contra la venta (FCST ACC)', pk.accReal == null ? '—' : nf.format(Math.max(0, pk.accReal) * 100) + ' %'],
+        ['Referencia: sell in (facturado) de esos meses', fN(pk.sellInPz) + ' pz'], ['Sesgo contra el sell in', flecha(pk.sesgoSellIn) + fP(pk.sesgoSellIn)], ['Precisión contra el sell in', pk.accSellIn == null ? '—' : nf.format(Math.max(0, pk.accSellIn) * 100) + ' %']],
+      fuentes: ['Forecast histórico: BHIST (la carpeta de cada mes guarda tu número para ese mes)', 'Venta real: demanda de cada distribuidor (sell through / sell out / sell in directo)', 'Sell in: facturación de Brinova (DATA SELL IN)'],
+      tec: 'datos.json → precisionKam' + (S.dist === 'TODOS' ? '.total' : '.porClase[' + esc(S.dist) + ']') + ' (en piezas)', nota: esc(pk.regla || '') + ' Sirve para calibrar: si sueles ir arriba, revisa primero los productos grandes.' };
+    return { t: 'Tu forecast pasado contra la venta', v: fP(r.sesgo), u: 'sesgo, últimos 12 meses cerrados',
+      que: `Compara lo que pusiste en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, de ${rango(r.L12)}. Positivo = pronosticaste de más. Solo cuenta meses y productos donde diste forecast.`,
+      formula: 'sesgo = Σ forecast ÷ Σ venta real − 1 · precisión = 1 − Σ |venta real − forecast| ÷ Σ forecast (como FCST ACC de Power BI)',
+      filas: [['Tu forecast de esos meses', fC(r.kp)], ['Venta real (demanda) de esos meses', fC(r.rl)], ['Sesgo contra la venta', flecha(r.sesgo) + fP(r.sesgo), 1], ['Precisión contra la venta', r.prec == null ? '—' : nf.format(r.prec * 100) + ' %'], ['Referencia: sell in (facturado) de esos meses', fC(r.si)], ['Sesgo contra el sell in', flecha(r.sesgoSI) + fP(r.sesgoSI)]],
+      fuentes: ['Forecast histórico: BHIST (la carpeta de cada mes guarda tu número para ese mes)', 'Venta real: demanda de cada distribuidor (sell through / sell out / sell in directo)', 'Sell in: facturación de Brinova (DATA SELL IN)'],
+      tec: 'productos[].kamPasadoPz, .real y .sellIn (piezas) × .precioPz, producto por producto y mes por mes',
+      nota: 'Sirve para calibrar: si sueles ir arriba, revisa primero los productos grandes. El error se suma producto por producto, así que un producto alto no compensa a otro bajo.' };
+  },
+  k_curso() {
+    const sel = selDist(), r = resumen(sel);
+    const fo = (D.formularios || {})[MC];
+    return { t: 'Mes en curso: ' + mll(MC), v: fC(r.curso), u: OFICIAL_CURSO ? 'forecast oficial a precio de lista' : 'forecast vigente a precio de lista',
+      que: `${mll(MC)} ya está corriendo: su forecast no se cambia en esta captura. ${OFICIAL_CURSO ? 'Es el oficial: la columna de ' + ml(MC) + ' de los formularios de la carpeta ' + esc(fo ? fo.carpeta : MC) + ' (la misma regla de BHIST).' : 'Es el de tu último formulario; el oficial llega con la próxima carga de datos.'} La captura es ${rango(MK)}.`,
+      filas: r.conAvance ? [['Facturado en ' + ml(MC) + ' hasta el ' + fechaCorta(D.avanceHasta), fC(r.avance)], ['Avance contra el forecast del mes', r.curso ? nf.format(r.avance / r.curso * 100) + ' %' : '—', 1]] : [],
+      fuentes: [fo && fo.archivos && fo.archivos.length ? 'Formularios de la carpeta ' + esc(fo.carpeta) + ': ' + fo.archivos.map(esc).join(', ') : FUENTE_UNID].concat(r.conAvance ? ['Avance: DATA SELL IN (facturación de Brinova) del mes en curso, en piezas × precio de lista'] : []),
+      tec: 'productos[].codigos[].kam[mes en curso]' + (r.conAvance ? ' · productos[].avanceSellInPz' : ''),
+      nota: `Regla del horizonte: el mes en curso queda cerrado para captura; se abren los ${MK.length} meses siguientes. Todo el año sigue cargado y visible como referencia.` };
+  },
+  p_venta3(ds) {
+    const p = PID[ds.p], f = fac(p), tri = MH.slice(-3), t = tend(p);
+    return { t: 'Venta 3 meses · ' + p.nombre, v: fN1(p.d3 / f), u: uNom(p),
+      que: `Demanda real de ${rango(tri)} en ${esc(p.clase)} (${esc(fuenteTxt(p.clase))}).`,
+      formula: 'Σ venta real de los 3 meses cerrados más recientes',
+      filas: tri.map(m => [ml(m), fN1((p.real[m] || 0) / f)]).concat([['Total', fN1(p.d3 / f), 1], ['Mismos meses del año anterior', fN1(p.d3ly / f)], ['Variación', flecha(t) + fP(t)]]),
+      fuentes: [fuenteLarga(p.clase)], tec: `productos[].real (piezas) ÷ ${fN(f)} pz por ${S.unidad === 'pz' ? 'pieza' : String(p.princ.tipo || p.princ.pres || 'unidad').toLowerCase()}` };
+  },
+  p_inv(ds) {
+    const p = PID[ds.p], f = fac(p), i = p.inv;
+    if (!i) return { t: 'Inventario · ' + p.nombre, v: 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'El distribuidor no ha enviado inventario de este producto.' };
+    const vd = p.d3 / 91.2, e = estInv(i.doh, p.clase);
+    return { t: 'Inventario y días · ' + p.nombre, v: fN1(i.pz / f) + ' ' + uNom(p), u: 'al ' + fechaCorta(i.fecha),
+      que: `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
+      formula: 'días = inventario ÷ (venta de 3 meses ÷ 91,2 días)',
+      filas: [['Inventario (piezas)', fN(i.pz) + ' pz'], ['Venta 3 meses (piezas)', fN(p.d3) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', i.doh == null ? 'sin venta reciente' : fN(i.doh), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]],
+      fuentes: [`Reporte de inventario de ${esc(p.clase)} (${(D.distribuidores[p.clase] || {}).invCortes || 0} cortes; último ${fechaCorta(i.fecha)}), convertido a piezas con la regla de unidades del cluster`],
+      tec: 'productos[].inv.pz, .inv.doh, .inv.hist', nota: `Estado: ${e ? e[1] : 'sin dato'}. Umbrales: menos de ${riesgo(p.clase)} días riesgo de quiebre, más de 90 sobrestock, más de 180 exceso.` };
+  },
+  p_alg(ds) {
+    const p = PID[ds.p], f = fac(p);
+    return { t: 'Algoritmo · ' + p.nombre, v: fN1(algPz6(p) / f), u: uNom(p) + ' en ' + rango(MK),
+      que: 'Suma de lo que propone el algoritmo para los meses de captura (todas las presentaciones del producto).',
+      formula: 'Σ meses de captura de (base mensual × índice de temporada), con las reglas de intermitentes y de 6 meses sin venta',
+      filas: MK.map(m => [ml(m), fN1((p.alg[m] || 0) / f)]).concat([['Total', fN1(algPz6(p) / f), 1], ['Valor a precio de lista', fC(pv(p, algPz6(p)))]]),
+      fuentes: [FUENTE_ALG], tec: 'productos[].alg (piezas) · por código en productos[].codigos[].calc' };
+  },
+  p_kam(ds) {
+    const p = PID[ds.p], f = fac(p), d = dif(p);
+    return { t: 'Tu forecast · ' + p.nombre, v: fN1(kamPz6(p) / f), u: uNom(p) + ' en ' + rango(MK),
+      que: 'Suma de tus unidades en los meses de captura, de todos los códigos del producto, convertidas a una sola unidad.',
+      formula: 'Σ códigos y meses de (unidades del código × piezas por unidad) ÷ piezas de la unidad mostrada',
+      filas: p.codigos.filter(c => MK.some(m => kamU(c, m))).map(c => { const u = MK.reduce((a, m) => a + kamU(c, m), 0); return [esc(c.cod) + ' · ' + esc(cNom(c)), fN(u) + ' ' + esc(plural(c.tipo || c.pres)) + ' × ' + fN(c.pzPorU) + ' = ' + fN(u * (c.pzPorU || 0)) + ' pz']; })
+        .concat([['Total', fN(kamPz6(p)) + ' pz = ' + fN1(kamPz6(p) / f) + ' ' + uNom(p), 1], ['Contra el algoritmo', flecha(d) + fP(d)], ['Valor a precio de lista', fC(kamValM(p, MK))]]),
+      fuentes: [FUENTE_UNID, FUENTE_PRECIO], tec: 'productos[].codigos[].kam + captura; piezas por código = codigos[].pzPorU (T_SKU · UNIDAD DE EMPAQUE)' };
+  },
+  p_cierre(ds) {
+    const p = PID[ds.p], f = fac(p), r = p.s12 ? p.d12 / p.s12 : null;
+    return { t: 'Cierre de 12 meses · ' + p.nombre, v: p.cierre === 'OK' ? 'Cuadra' : p.cierre.toLowerCase(), u: '',
+      que: tipoDe(p.clase) === 'sell in directo' ? 'Aquí la demanda es lo que Brinova facturó: la razón contra el sell in siempre da 1.' : 'En 12 meses, lo que el cliente vendió debería parecerse a lo que Brinova le facturó. Si no, puede haber un problema de unidades o de código.',
+      formula: 'razón = demanda 12 meses ÷ sell in 12 meses · fuera de 0,6–1,6 (con 600 pz o más) = revisar',
+      filas: [['Demanda 12 meses', fN(p.d12) + ' pz = ' + fN1(p.d12 / f) + ' ' + uNom(p)], ['Sell in 12 meses (facturado)', fN(p.s12) + ' pz = ' + fN1(p.s12 / f) + ' ' + uNom(p)], ['Razón', r == null ? '—' : nf2.format(r), 1]],
+      fuentes: [fuenteLarga(p.clase), 'Facturación de Brinova (DATA SELL IN): piezas = unidades facturadas × piezas del código'], tec: 'productos[].d12, .s12, .cierre' };
+  },
+  p_unidad(ds) {
+    const p = PID[ds.p];
+    return { t: 'Unidades de ' + p.nombre, v: '1 ' + String(p.princ.tipo || p.princ.pres || 'unidad').toLowerCase() + ' = ' + fN(p.uPz) + ' pz', u: 'código principal ' + p.principal,
+      que: 'Un producto puede tener varios códigos (unidad, caja, pack). Brinova factura uno y el distribuidor puede reportar otro; por eso todo se suma en <b>piezas</b> (la unidad estándar: 1 alambrina, 1 esponja) y se muestra en la presentación de tu formulario.',
+      filas: p.codigos.map(c => [esc(c.cod) + ' · ' + esc(c.desc), esc(cNom(c)) + (c.cod === p.principal ? ' · principal' : '') + (c.captura ? ' · se captura' : '') + (c.pzBfcst != null && c.pzPorU && c.pzBfcst !== c.pzPorU ? ' · ⚠ Power BI usa ' + fN(c.pzBfcst) + ' pz' : '')]),
+      fuentes: ['Piezas por unidad de venta de cada código: T_SKU (UNIDAD DE EMPAQUE)', 'Presentación: la de tu formulario (TIPO de BFCST) o T_SKU (NIVEL_PRESENTACION)', 'Código principal = el que más usas en tu formulario o en compras'],
+      tec: 'productos[].codigos[].pzPorU, .pres, .tipo, .pzBfcst · productos[].uPz',
+      nota: p.codigos.some(c => c.pzBfcst != null && c.pzPorU && c.pzBfcst !== c.pzPorU) ? 'Hay un código con un factor distinto en Power BI (BFCST.UESTANDAR) que en este portal (T_SKU). BI lo está revisando; mientras tanto el portal usa T_SKU.' : '' };
+  },
+  cel(ds) {
+    const { p, c } = LINES[ds.c], m = ds.m, e = estadoMes(m), u = c.pzPorU || 1, aa = addM(m, -12), pc = c.cod === p.principal, un = esc(plural(c.tipo || c.pres));
+    const fo = (D.formularios || {})[m], sinForm = CAL && (CAL.mesesSinFormulario || []).includes(m);
+    const filas = [['Estado del mes', EST[e]], ['Forecast vigente (' + (e === 'curso' && OFICIAL_CURSO ? 'oficial' : 'formulario') + ')', sinForm ? 'sin formulario previo: parte de 0' : vig(c, m) == null ? 'no viene en el formulario' : fN(vig(c, m)) + ' ' + un + (fo ? ' · carpeta ' + esc(fo.carpeta) : '')]];
+    if (e === 'abierto') filas.push(['Tu valor ahora', fN(kamU(c, m)) + ' ' + un + (editado(c, m) ? ' (cambiado)' : ''), 1]);
+    filas.push(['Algoritmo del producto, en esta unidad', pc && c.pzPorU ? fN1((p.alg[m] || 0) / u) + ' ' + un : 'se muestra en el código principal ' + esc(p.principal)]);
+    if (c.calc && c.calc.fc && c.calc.fc[m] != null && !pc) filas.push(['Algoritmo de este código', fN1(c.calc.fc[m] / u) + ' ' + un]);
+    filas.push(['Venta real ' + ml(aa) + ' (todo el producto)', fN1((p.real[aa] || 0) / u) + ' ' + un]);
+    const s = siU(p, c, aa); filas.push(['Sell in ' + ml(aa), s == null ? '—' : fN1(s) + ' ' + un]);
+    if (c.kamPasado && c.kamPasado[aa] != null) filas.push(['Lo que dijiste para ' + ml(aa), fN(c.kamPasado[aa]) + ' ' + un]);
+    const pr = precioU(p, c), q = e === 'abierto' ? kamU(c, m) : (vig(c, m) || 0);
+    filas.push(['Precio de lista', fC2(pr)], ['Valor', fC(q * (pr || 0))]);
+    return { t: c.cod + ' · ' + mll(m), v: fN(q) + ' ' + plural(c.tipo || c.pres), u: cNom(c) + ' = ' + fN(q * u) + ' pz',
+      que: esc(c.desc) + ' · ' + esc(p.clase), filas, fuentes: [FUENTE_UNID, FUENTE_ALG, fuenteLarga(p.clase)],
+      tec: 'codigos[].kam, productos[].alg, productos[].real, codigos[].kamPasado, codigos[].precio' };
+  },
+  version() {
+    const filas = filasVersion();
+    return { t: 'Fecha de los datos', v: D.generado || '—', u: D.versionDatos && D.versionDatos.sello ? 'corrida ' + D.versionDatos.sello : 'generado',
+      que: `Datos reales hasta <b>${mll(D.corte)}</b>. Ciclo ${mll(D.ciclo)}. Esta tabla dice de qué fecha es cada archivo que usó la corrida.`, filas,
+      fuentes: filas.length ? ['Fecha de modificación de cada archivo que usó la corrida (versionDatos)'] : ['Esta versión de datos.json no trae la fecha de cada fuente; llega con la próxima carga'],
+      tec: 'datos.json → generado, corte, versionDatos' };
+  },
+};
+
+/* ---------- gráfico mensual (SVG propio, un solo eje, crucero + teclado + tabla) ---------- */
+const COL = { real: '#149CDC', alg: '#6250D6', kam: '#D9661A', si: '#C2CCD4', inv: '#8FA1B0' };   // validado (dataviz validate_palette, modo claro; sell in = contexto gris con tabla)
+let gid = 0;
+const ro = new ResizeObserver(es => es.forEach(e => { const el = e.target; if (el._o && Math.abs((el._w || 0) - e.contentRect.width) > 2) dibujar(el); }));
+function grafico(el, o) { if (!el) return; el._o = o; if (!el._obs) { ro.observe(el); el._obs = true; el.tabIndex = 0; } dibujar(el); }
+function pasoEje(max, n = 4) { if (max <= 0) return 1; const raw = max / n, e = Math.pow(10, Math.floor(Math.log10(raw))); for (const f of [1, 2, 5, 10]) if (f * e >= raw) return f * e; return 10 * e; }
+const valS = (s, m) => { const v = s.data[m]; return ok(v) ? v : null; };
+function dibujar(el) {
+  const o = el._o; if (!o || !el.isConnected) return;
+  const W = Math.max(280, Math.round(el.clientWidth || 640)); el._w = W;
+  const H = o.h || 260, L = o.izq || 56, R = 10, T = 22, B = 26, ms = o.meses, n = ms.length, bw = (W - L - R) / n, id = 'g' + (++gid);
+  let mx = 0; o.series.forEach(s => ms.forEach(m => { const v = valS(s, m); if (v != null && v > mx) mx = v; }));
+  const st = pasoEje(mx * 1.05), top = Math.max(st, Math.ceil((mx * 1.05) / st) * st);
+  const y = v => T + (H - T - B) * (1 - v / top), x = i => L + bw * (i + 0.5);
+  let g = `<defs><pattern id="${id}h" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#F3F5F7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#E1E6EA" stroke-width="2"/></pattern></defs>`;
+  if (o.estados) {      // bandas: mes en curso (rayado) y meses de captura (tinte)
+    let i = 0;
+    while (i < n) {
+      const e = estadoMes(ms[i]); let j = i; while (j + 1 < n && estadoMes(ms[j + 1]) === e) j++;
+      if (e === 'curso' || e === 'abierto') {
+        const x0 = L + bw * i, w = bw * (j - i + 1);
+        g += `<rect x="${x0.toFixed(1)}" y="${T - 16}" width="${w.toFixed(1)}" height="${H - B - T + 16}" fill="${e === 'curso' ? `url(#${id}h)` : '#E8F5FC'}"/>`;
+        if (w >= 54) g += `<text x="${(x0 + 4).toFixed(1)}" y="${T - 5}" style="font-weight:600">${e === 'curso' ? 'en curso' : 'captura'}</text>`;
+      }
+      i = j + 1;
+    }
+  }
+  for (let v = 0; v <= top + 1e-9; v += st) {
+    const yy = y(v).toFixed(1);
+    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${v ? '#E3E8EC' : '#C9D1D8'}" stroke-width="1"/><text x="${L - 6}" y="${(+yy + 4).toFixed(1)}" text-anchor="end">${esc(o.eje(v))}</text>`;
+  }
+  if (o.dias) { const k = [1, 2, 5, 7, 10].find(s => s * bw >= 26) || 10; ms.forEach((m, i) => { if (i % k === 0) g += `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${+m.slice(8, 10)}</text>`; }); }
+  else { const k = [1, 2, 3, 6, 12].find(s => s * bw >= 40) || 12; ms.forEach((m, i) => { const mo = +m.slice(5, 7) - 1; if (mo % k === 0) g += `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle"${mo === 0 ? ' style="font-weight:600"' : ''}>${ml(m)}</text>`; }); }
+  (o.incompletos || []).forEach(m => { const i = ms.indexOf(m); if (i >= 0) g += `<path d="M${(x(i) - 5).toFixed(1)} ${H - B + 9} L${(x(i) + 5).toFixed(1)} ${H - B + 9} L${x(i).toFixed(1)} ${H - B + 1}Z" fill="#D99A22"><title>Mes incompleto</title></path>`; });
+  o.series.filter(s => s.tipo === 'col').forEach(s => {
+    const w = Math.max(2, Math.min(bw * 0.6, 16)), r = Math.min(3, w / 2);
+    ms.forEach((m, i) => { const v = valS(s, m); if (!v || v <= 0) return; const x0 = x(i) - w / 2, y0 = y(v), yb = y(0), rr = Math.min(r, yb - y0);
+      g += `<path d="M${x0.toFixed(1)} ${yb.toFixed(1)}V${(y0 + rr).toFixed(1)}Q${x0.toFixed(1)} ${y0.toFixed(1)} ${(x0 + rr).toFixed(1)} ${y0.toFixed(1)}H${(x0 + w - rr).toFixed(1)}Q${(x0 + w).toFixed(1)} ${y0.toFixed(1)} ${(x0 + w).toFixed(1)} ${(y0 + rr).toFixed(1)}V${yb.toFixed(1)}Z" fill="${s.color}"/>`; });
+  });
+  o.series.filter(s => s.tipo === 'line' || s.tipo === 'dash' || s.tipo === 'lm').forEach(s => {
     let d = '', prev = false;
     ms.forEach((m, i) => { const v = valS(s, m); if (v == null) { prev = false; return; } d += (prev ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); prev = true; });
     g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${s.tipo === 'dash' ? ' stroke-dasharray="6 4"' : ''}/>`;
-    if (s.marcas) ms.forEach((m, i) => { const v = valS(s, m); if (v != null) g += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`; });
+    if (s.tipo === 'lm') ms.forEach((m, i) => { const v = valS(s, m); if (v != null) g += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" fill="${s.color}" stroke="#fff" stroke-width="2"/>`; });
   });
-  o.series.filter(s => s.tipo === 'dot').forEach(s => ms.forEach((m, i) => {
-    const v = valS(s, m); if (v == null) return;
-    g += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" fill="var(--surface)" stroke="${s.color}" stroke-width="2"/>`;
-  }));
-  g += `<line class="cruz" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" stroke-width="1" visibility="hidden"/>`;
-  g += `<rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>`;
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(o.titulo || 'Gráfico mensual')}">${g}</svg><div class="tip" hidden></div>`;
-  const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), cruz = el.querySelector('.cruz');
-  const mover = ev => {
-    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
-    const i = Math.max(0, Math.min(n - 1, Math.floor((px - L) / bw))), m = ms[i];
-    const filas = o.series.map(s => [s, valS(s, m)]).filter(([s, v]) => v != null && !(s.tipo === 'col' && !v));
+  o.series.filter(s => s.tipo === 'ring').forEach(s => ms.forEach((m, i) => { const v = valS(s, m); if (v != null && v > 0) g += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" fill="#fff" stroke="${s.color}" stroke-width="2"/>`; }));
+  g += `<line class="cruz" x1="0" x2="0" y1="${T - 16}" y2="${H - B}" stroke="#14232C" stroke-width="1" visibility="hidden"/>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc((o.titulo || 'Gráfico mensual') + '. Usa las flechas para recorrer los meses; el botón Ver tabla muestra los mismos datos.')}">${g}</svg><div class="tip" hidden></div>`;
+  const svg = el.firstChild, tip = el.lastChild, cruz = svg.querySelector('.cruz');
+  const mostrar = i => {
+    i = Math.max(0, Math.min(n - 1, i)); el._i = i; const m = ms[i];
     cruz.setAttribute('x1', x(i)); cruz.setAttribute('x2', x(i)); cruz.setAttribute('visibility', 'visible');
-    tip.innerHTML = `<b>${mll(m)}</b>` + (filas.length ? filas.map(([s, v]) => `<div><span>${esc(s.nombre)}</span><span>${esc(o.tip(v))}</span></div>`).join('') : '<div><span>Sin datos</span></div>');
+    tip.textContent = '';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = o.dias ? fechaCorta(m) : mll(m); tip.appendChild(t);
+    let hay = 0;
+    o.series.forEach(s => { const v = valS(s, m); if (v == null || (s.tipo === 'col' && !v)) return; hay++;
+      const r = document.createElement('div'); r.className = 'r';
+      const k = document.createElement('i'); k.className = 'sw ' + (s.tipo === 'dash' ? 'dash' : s.tipo === 'col' ? 'col' : s.tipo === 'ring' ? 'dot' : '');
+      k.style[s.tipo === 'col' ? 'background' : s.tipo === 'ring' ? 'borderColor' : 'borderTopColor'] = s.color;
+      const a = document.createElement('span'); a.textContent = s.nombre; const b = document.createElement('b'); b.textContent = o.tip(v); r.append(k, a, b); tip.appendChild(r); });
+    if (!hay) { const r = document.createElement('div'); r.className = 'r'; r.textContent = 'Sin datos'; tip.appendChild(r); }
+    if (o.estados && m > D.corte) { const e = document.createElement('div'); e.className = 'st'; e.textContent = EST[estadoMes(m)]; tip.appendChild(e); }
+    if ((o.incompletos || []).includes(m)) { const e = document.createElement('div'); e.className = 'st'; e.textContent = 'Mes incompleto: el cliente no reportó el mes completo; tómalo con cuidado'; tip.appendChild(e); }
     tip.hidden = false;
-    const left = x(i) * r.width / W;
-    tip.style.left = (left + 190 > r.width ? left - 190 : left + 12) + 'px'; tip.style.top = '6px';
+    const rw = svg.getBoundingClientRect().width || W, px = x(i) * rw / W, tw = tip.offsetWidth || 200;
+    tip.style.left = Math.max(0, px + 14 + tw > rw ? px - tw - 14 : px + 14) + 'px'; tip.style.top = '4px';
   };
-  svg.addEventListener('pointermove', mover); svg.addEventListener('pointerdown', mover);
-  svg.addEventListener('pointerleave', () => { tip.hidden = true; cruz.setAttribute('visibility', 'hidden'); });
+  const ocultar = () => { tip.hidden = true; cruz.setAttribute('visibility', 'hidden'); };
+  const porX = ev => { const r = svg.getBoundingClientRect(); mostrar(Math.floor(((ev.clientX - r.left) * W / r.width - L) / bw)); };
+  svg.addEventListener('pointermove', porX); svg.addEventListener('pointerdown', porX);
+  svg.addEventListener('pointerleave', ocultar);
+  el.onkeydown = ev => { if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') { ev.preventDefault(); mostrar((el._i ?? n - 1) + (ev.key === 'ArrowRight' ? 1 : -1)); } if (ev.key === 'Escape') ocultar(); };
+  el.onfocus = () => mostrar(el._i ?? Math.max(0, ms.indexOf(D.corte)));
+  el.onblur = ocultar;
 }
-function leyenda(series) {
-  return series.map(s => {
-    const cls = s.tipo === 'dash' ? 'sw dash' : s.tipo === 'col' ? 'sw col' : s.tipo === 'dot' ? 'sw dot' : 'sw';
-    const st = s.tipo === 'col' ? `background:${s.color}` : `border-color:${s.color}`;
-    return `<span><i class="${cls}" style="${st}"></i>${esc(s.nombre)}</span>`;
-  }).join('');
+function leyenda(series, conBandas) {
+  return series.map(s => `<span><i class="sw ${s.tipo === 'dash' ? 'dash' : s.tipo === 'col' ? 'col' : s.tipo === 'ring' ? 'dot' : s.tipo === 'lm' ? 'lm' : ''}" style="${s.tipo === 'col' ? 'background' : s.tipo === 'ring' ? 'border-color' : 'border-top-color'}:${s.color};color:${s.color}"></i>${esc(s.nombre)}</span>`).join('')
+    + (conBandas ? `<span><i class="sw band" style="background:repeating-linear-gradient(135deg,#F1F3F5 0 3px,#E2E7EB 3px 5px)"></i>${esc(ml(MC))} en curso</span><span><i class="sw band" style="background:#E8F5FC;border-color:#149CDC"></i>captura ${esc(rango(MK))}</span>` : '');
 }
+function tablaSeries(o) {
+  const ms = o.meses.filter(m => o.series.some(s => ok(s.data[m]) && s.data[m] !== 0));
+  return `<div class="tw" role="region" tabindex="0" aria-label="Tabla del gráfico" style="max-height:340px;margin-top:10px"><table class="tbl"><thead><tr><th class="l">Mes</th>${o.series.map(s => `<th>${esc(s.nombre)}</th>`).join('')}<th class="l">Estado</th></tr></thead><tbody>` +
+    ms.map(m => `<tr><td class="l">${ml(m)}${(o.incompletos || []).includes(m) ? ' ▲ incompleto' : ''}</td>${o.series.map(s => `<td>${ok(s.data[m]) ? esc(o.tip(s.data[m])) : '—'}</td>`).join('')}<td class="l">${EST_C[estadoMes(m)]}</td></tr>`).join('') + '</tbody></table></div>';
+}
+/* series estándar: selección en colones, o un producto en su unidad */
+function seriesDe(sel, p) {
+  const f = p ? fac(p) : 1, conv = (q, pp) => p ? (q || 0) / f : pv(pp, q);
+  const agg = (fn, ms) => { const o = {}; ms.forEach(m => { o[m] = sel.reduce((a, pp) => a + fn(pp, m), 0); }); return o; };
+  const conSI = sel.some(pp => tipoDe(pp.clase) !== 'sell in directo');
+  const pas = MH.filter(m => m >= '2025-01'), kamMs = MV.filter(m => MF.includes(m) || m === MC);
+  const s = [];
+  if (conSI) s.push({ nombre: 'Sell in (facturado por Brinova)', tipo: 'col', color: COL.si, data: agg((pp, m) => conv(pp.sellIn[m], pp), MH) });
+  s.push({ nombre: 'Venta real (demanda)', tipo: 'line', color: COL.real, data: agg((pp, m) => conv(pp.real[m], pp), MH) });
+  const kp = agg((pp, m) => conv(pp.kamPasadoPz && pp.kamPasadoPz[m], pp), pas); Object.keys(kp).forEach(k => { if (!kp[k]) delete kp[k]; });
+  s.push({ nombre: 'Lo que dijiste para cada mes', tipo: 'ring', color: COL.kam, data: kp });
+  s.push({ nombre: 'Algoritmo', tipo: 'dash', color: COL.alg, data: agg((pp, m) => conv(pp.alg[m], pp), MF) });
+  s.push({ nombre: 'Tu forecast (vigente + cambios)', tipo: 'lm', color: COL.kam, data: agg((pp, m) => p ? kamPz(pp, m) / f : kamVal(pp, m), kamMs) });
+  return s;
+}
+const mesesGraf = () => MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= S.desde);
 function spark(p) {
-  const a = MH.slice(-12).map(m => p.real[m] || 0), b = MK.map(m => p.alg[m] || 0), all = a.concat(b);
-  const mx = Math.max(...all, 1), W = 120, H = 32, n = all.length, x = i => 2 + i * (W - 4) / (n - 1), y = v => H - 3 - (H - 6) * v / mx;
+  const a = MH.slice(-12).map(m => p.real[m] || 0), b = MV.map(m => p.alg[m] || 0), all = a.concat(b);
+  const mx = Math.max(...all, 1), W = 120, H = 30, n = all.length, x = i => 2 + i * (W - 4) / (n - 1), y = v => H - 3 - (H - 6) * v / mx;
   const pa = a.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join('');
-  const idx = [a.length - 1].concat(b.map((_, j) => a.length + j));
-  const pb = idx.map((i, k) => (k ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(all[i]).toFixed(1)).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><line x1="2" x2="${W - 2}" y1="${H - 3}" y2="${H - 3}" stroke="var(--line)"/><path d="${pa}" fill="none" stroke="var(--s-real)" stroke-width="1.6"/><path d="${pb}" fill="none" stroke="var(--s-real)" stroke-width="1.6" stroke-dasharray="3 3"/><circle cx="${x(a.length - 1).toFixed(1)}" cy="${y(a[a.length - 1]).toFixed(1)}" r="2.5" fill="var(--s-real)"/></svg>`;
+  const pb = [a.length - 1].concat(b.map((_, j) => a.length + j)).map((i, k) => (k ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(all[i]).toFixed(1)).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><line x1="2" x2="${W - 2}" y1="${H - 3}" y2="${H - 3}" stroke="#E3E8EC"/><path d="${pa}" fill="none" stroke="${COL.real}" stroke-width="1.6"/><path d="${pb}" fill="none" stroke="${COL.alg}" stroke-width="1.6" stroke-dasharray="3 3"/></svg>`;
 }
 
 /* ---------- encabezado y filtros ---------- */
 function pintarEncabezado() {
   $('#t-kam').textContent = D.kam;
-  $('#t-ciclo').textContent = `Ciclo ${mll(D.ciclo)} · ventas reales hasta ${mll(D.corte)} · captura ${ml(MK[0])} a ${ml(MK[MK.length - 1])}`;
+  $('#t-ciclo').innerHTML = `Ciclo <b>${esc(mll(D.ciclo))}</b> · ventas reales hasta ${esc(mll(D.corte))} · <b>${esc(ml(MC))}</b> en curso (solo lectura) · captura <b>${esc(rango(MK))}</b>`
+    + (CAP_HASTA ? ` hasta el ${esc(fechaCorta(CAP_HASTA))}` : '') + (VENCIDO ? ' · <b>captura cerrada</b>' : '') + (CAL && CAL.forzado ? ' · ciclo fijado por BI' : '')
+    + ` · ${nb('version', 'datos del ' + esc(D.generado || '—'))}`;
   const n = c => P.filter(p => c === 'TODOS' || p.clase === c).length;
   $('#f-dist').innerHTML = ['TODOS'].concat(D.clases).map(c =>
-    `<button type="button" data-d="${c}" aria-pressed="${S.dist === c}">${c === 'TODOS' ? 'Todos' : esc(c)}<span class="c">${n(c)}</span></button>`).join('');
+    `<button type="button" data-d="${esc(c)}" aria-pressed="${S.dist === c}">${c === 'TODOS' ? 'Todos' : esc(c)}<span class="c">${n(c)}</span></button>`).join('');
   const cats = [...new Set(P.map(p => p.cat).filter(Boolean))].sort();
-  $('#f-cat').innerHTML = '<option value="">Todas las categorías</option>' + cats.map(c => `<option>${esc(c)}</option>`).join('');
-  const ch = [['todos', 'Todos'], ['alerta', 'Con alerta'], ['invbajo', 'Inventario bajo'], ['invalto', 'Inventario alto'], ['dif', 'Lejos del algoritmo'], ['cae', 'Venta cayendo']];
+  $('#f-cat').innerHTML = '<option value="">Todas las categorías</option>' + cats.map(c => `<option${c === S.cat ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  const ch = [['todos', 'Todos'], ['alerta', 'Con alerta'], ['invbajo', 'Riesgo de quiebre'], ['invalto', 'Sobrestock o exceso'], ['dif', 'Lejos del algoritmo'], ['cae', 'Venta cayendo'], ['aviso', 'Con aviso de captura']];
   $('#chips').innerHTML = ch.map(([k, t]) => `<button type="button" class="chip" data-chip="${k}" aria-pressed="${S.chip === k}">${t}</button>`).join('');
-  const ch2 = [['todos', 'Todos'], ['editados', 'Que cambié'], ['dif', 'Lejos del algoritmo']];
+  const ch2 = [['todos', 'Todos'], ['editados', 'Que cambié'], ['dif', 'Lejos del algoritmo'], ['aviso', 'Con aviso']];
   $('#chips2').innerHTML = ch2.map(([k, t]) => `<button type="button" class="chip" data-chip2="${k}" aria-pressed="${S.chip2 === k}">${t}</button>`).join('');
+  $('#f-capv').innerHTML = [['abiertos', 'Meses de captura'], ['curso', '+ mes en curso'], ['todo', 'Todo el año']].map(([k, t]) => `<button type="button" data-capv="${k}" aria-pressed="${S.capVista === k}">${t}</button>`).join('');
   document.querySelectorAll('#f-unidad button').forEach(b => b.setAttribute('aria-pressed', b.dataset.u === S.unidad));
 }
 const enDist = p => S.dist === 'TODOS' || p.clase === S.dist;
-const textoP = p => (p.nombre + ' ' + p.grupo + ' ' + p.codigos.map(c => c.cod + ' ' + c.desc).join(' ')).toLowerCase();
+const textoP = p => p.txt;
 function pasaChip(p, k) {
   if (k === 'alerta') return alertas(p).length > 0;
-  if (k === 'invbajo') return dias(p) != null && dias(p) < 15;
+  if (k === 'invbajo') { const e = estInv(dias(p), p.clase); return !!e && e[0] === 'bad'; }
   if (k === 'invalto') return dias(p) != null && dias(p) > 90;
   if (k === 'dif') { const d = dif(p); return d != null && Math.abs(d) > 0.5; }
   if (k === 'cae') { const t = tend(p); return t != null && t <= -0.1; }
   if (k === 'editados') return p.codigos.some(c => MK.some(m => editado(c, m)));
+  if (k === 'aviso') return avisosCaptura(p).length > 0;
   return true;
 }
-const filtrados = () => P.filter(p => enDist(p) && (!S.cat || p.cat === S.cat) && (!S.q || textoP(p).includes(S.q.toLowerCase())) && pasaChip(p, S.chip));
+const filtrados = () => { const q = S.q.trim().toLowerCase(); return P.filter(p => enDist(p) && (!S.cat || p.cat === S.cat) && (!q || p.txt.includes(q)) && pasaChip(p, S.chip)); };
+
+/* ---------- horizonte del ciclo ---------- */
+function tiraHorizonte(desde, hasta) {
+  const ms = []; for (let m = desde; m <= hasta; m = addM(m, 1)) ms.push(m);
+  return `<div class="tira" role="list" aria-label="Estado de cada mes">${ms.map(m => { const e = estadoMes(m); return `<div class="mes-e ${e}" role="listitem" title="${esc(mll(m) + ': ' + EST[e])}"><b>${ml(m)}</b><span>${e === 'curso' ? ICO.lock : ''}${EST_C[e]}</span></div>`; }).join('')}</div>`;
+}
+function pintarHorizonte() {
+  const sel = P.filter(enDist), r = resumen(sel);
+  const av = r.conAvance ? `Facturado en ${ml(MC)} hasta el ${esc(fechaCorta(D.avanceHasta))}: <b>${fC(r.avance)}</b>${r.curso ? ` (${nf.format(r.avance / r.curso * 100)} % del forecast del mes)` : ''}.` : `El avance de facturación de ${ml(MC)} llega con la próxima carga de datos.`;
+  $('#hz').innerHTML = `<div class="hz-top"><h2 id="hz-t">Tu horizonte</h2>
+      <span class="small">Se capturan <b>${esc(rango(MK))}</b>${CAP_HASTA ? `, hasta el <b>${esc(fechaCorta(CAP_HASTA))}</b>` : ''}. ${esc(mll(MC).replace(/^./, c => c.toUpperCase()))} está en curso: su forecast ${OFICIAL_CURSO ? 'oficial' : 'vigente'} (${nb('k_curso', fC(r.curso))}) ya no se cambia.</span></div>
+    ${VENCIDO ? `<p class="aviso"><b>La captura del ciclo ${esc(mll(D.ciclo))} cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Todo queda de solo lectura hasta que BI cargue el ciclo siguiente. Lo que capturaste sigue guardado.</p>` : ''}
+    ${CAL && CAL.avisos && CAL.avisos.length ? `<p class="aviso">${CAL.avisos.map(esc).join(' · ')}</p>` : ''}
+    ${tiraHorizonte(addM(D.corte, -2), addM(MC, MK.length + 2) > ULT_MF ? ULT_MF : addM(MC, MK.length + 2))}
+    <div class="hz-ley"><span><i style="background:#EEF2F5"></i>Cerrado · venta real</span><span><i style="background:repeating-linear-gradient(135deg,#F1F3F5 0 3px,#E2E7EB 3px 5px)"></i>En curso · no se captura</span><span><i style="background:#E8F5FC;border-color:#149CDC"></i>Captura abierta</span><span><i></i>Referencia (algoritmo)</span></div>
+    <p class="small muted">${av}${!OFICIAL_CURSO ? ' El valor de ' + ml(MC) + ' es el de tu último formulario; el oficial (BHIST) llega con la próxima carga.' : ''}${CAL && (CAL.mesesSinFormulario || []).length ? ' ' + CAL.mesesSinFormulario.map(ml).join(', ') + ' no tiene formulario previo: parte de 0 y el algoritmo es la referencia.' : ''}</p>`;
+}
 
 /* ---------- indicadores ---------- */
 function pintarKpis() {
-  const sel = P.filter(enDist);
-  let algV = 0, kamV = 0, d3 = 0, d3ly = 0, inv = 0, d3st = 0, sinPrecio = 0, fechaInv = null;
-  sel.forEach(p => {
-    algV += pv(p, algPz6(p)); MK.forEach(m => kamV += kamVal(p, m));
-    d3 += pv(p, p.d3); d3ly += pv(p, p.d3ly);
-    if (p.inv) { inv += pv(p, p.inv.pz); d3st += pv(p, p.d3); fechaInv = fechaInv || p.inv.fecha; }
-    if (p.precioPz == null) sinPrecio++;
-  });
-  const df = algV > 0 ? kamV / algV - 1 : null, t = d3ly > 0 ? d3 / d3ly - 1 : null;
-  const doh = d3st > 0 ? inv / (d3st / 91.2) : null;
-  const tri = MH.slice(-3), triLy = tri.map(m => (+m.slice(0, 4) - 1) + m.slice(4));
+  const sel = P.filter(enDist), r = resumen(sel);
+  const tri = MH.slice(-3), t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null, ei = r.doh == null ? null : estInv(r.doh, S.dist === 'TODOS' ? D.clases[0] : S.dist);
   const tSel = tipoSel(), sinInv = !sel.some(p => p.inv);
   const porQue = tSel === 'sell in directo' ? 'Es venta directa de Brinova' : tSel === 'sell out' ? 'Las cadenas no envían inventario a BI' : 'No hay reporte de inventario de este cliente';
-  const fechas = [...new Set(sel.filter(p => p.inv).map(p => p.clase))].map(c => D.distribuidores[c].invFecha).filter(Boolean);
+  const fechas = [...new Set(sel.filter(p => p.inv).map(p => (D.distribuidores[p.clase] || {}).invFecha).filter(Boolean))];
   $('#kpis').innerHTML = `
-  <div class="kpi"><span class="lbl">Algoritmo · ${ml(MK[0])} a ${ml(MK[MK.length - 1])}</span><span class="big">${fC(algV)}</span>
-    <span class="sub">Promedio de venta de 3, 6 y 12 meses, ajustado por temporada</span></div>
-  <div class="kpi"><span class="lbl">Tu forecast · mismo periodo</span><span class="big">${fC(kamV)}</span>
-    <span class="row">${pillDif(df)}<span class="sub">frente al algoritmo</span></span></div>
-  <div class="kpi"><span class="lbl">Venta últimos 3 meses</span><span class="big">${fC(d3)}</span>
-    <span class="row">${pillTend(t)}<span class="sub">${ml(tri[0])}–${ml(tri[2])} vs ${ml(triLy[0])}–${ml(triLy[2])}</span></span></div>
+  <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big">${nb('k_kam', fC(r.kam))}</span>
+    <span class="vr ${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span>
+    <span class="refs"><span>Algoritmo</span><span>${nb('k_alg', fC(r.alg))}</span><span>En piezas</span><span>${fN(r.pzk)} pz</span></span></div>
+  <div class="kpi"><span class="lbl">Venta real · ${esc(rango(tri))}</span><span class="big">${nb('k_venta3', fC(r.d3))}</span>
+    <span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>
+    <span class="refs"><span>Año anterior</span><span>${fC(r.d3ly)}</span></span></div>
   <div class="kpi"><span class="lbl">Inventario en el distribuidor</span>
     ${sinInv ? `<span class="big">No aplica</span><span class="sub">${porQue}</span>` :
-      `<span class="big">${doh == null ? '—' : fN(doh) + ' días'}</span><span class="sub">${fC(inv)} a precio de lista · corte ${fechas.length ? [...new Set(fechas)].map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') : '—'}</span>`}</div>`;
+      `<span class="big">${r.doh == null ? '—' : nb('k_doh', fN(r.doh) + ' días')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
+      <span class="refs"><span>Valor</span><span>${fC(r.inv)}</span><span>Corte</span><span>${fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') : '—'}</span></span>`}</div>
+  <div class="kpi"><span class="lbl">Tu forecast pasado contra la venta</span><span class="big">${r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo))}</span>
+    <span class="vr ${r.sesgo != null && Math.abs(r.sesgo) > 0.15 ? 'warn' : 'muted'}">${r.sesgo == null ? 'sin forecast en los últimos 12 meses' : r.sesgo > 0 ? 'pronosticaste de más' : 'pronosticaste de menos'}</span>
+    <span class="refs"><span>Precisión</span><span>${r.prec == null ? '—' : nf.format(r.prec * 100) + ' %'}</span><span>Periodo</span><span>${esc(rango(r.L12))}</span></span></div>`;
   const nAl = sel.filter(p => alertas(p).length).length;
-  $('#nota-mix').textContent = `${sel.length} productos en el mix (de ${D.portafolio} del portafolio) · ${nAl} con alguna alerta${sinPrecio ? ' · ' + sinPrecio + ' sin precio de lista' : ''}`;
+  $('#nota-mix').textContent = `${sel.length} productos en el mix (de ${D.portafolio} del portafolio) · ${nAl} con alguna alerta${r.sinPrecio ? ' · ' + r.sinPrecio + ' sin precio de lista' : ''} · ${uNomGlobal()}`;
 }
 
 /* ---------- tendencia total ---------- */
 function pintarTotal() {
   const sel = P.filter(enDist);
-  const agg = (fn, ms) => { const o = {}; ms.forEach(m => { o[m] = sel.reduce((a, p) => a + fn(p, m), 0); }); return o; };
-  const desde = S.desde, todos = MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= desde);
-  const pas = MH.filter(m => m >= '2025-01');
-  const series = [];
-  if (tipoSel() !== 'sell in directo') series.push({ nombre: 'Facturado por Brinova', tipo: 'col', color: 'var(--s-sin)', dom: MH, data: agg((p, m) => pv(p, p.sellIn[m]), MH) });
-  series.push({ nombre: nomVenta(tipoSel()), tipo: 'line', color: 'var(--s-real)', dom: MH, data: agg((p, m) => pv(p, p.real[m]), MH) });
-  const kp = agg((p, m) => pv(p, p.kamPasadoPz[m]), pas); Object.keys(kp).forEach(k => { if (!kp[k]) delete kp[k]; });
-  series.push({ nombre: 'Tu forecast de cada mes', tipo: 'dot', color: 'var(--s-kam)', dom: pas, data: kp });
-  series.push({ nombre: 'Algoritmo', tipo: 'dash', color: 'var(--s-alg)', dom: MF, data: agg((p, m) => pv(p, p.alg[m]), MF) });
-  series.push({ nombre: 'Tu forecast actual', tipo: 'line', marcas: true, color: 'var(--s-kam)', dom: MK, data: agg((p, m) => kamVal(p, m), MK) });
-  grafico($('#ch-total'), { meses: todos, series, corte: D.corte, eje: v => '₡' + fCx(v), tip: fC, titulo: 'Tendencia del mix en colones' });
-  $('#lg-total').innerHTML = leyenda(series) + `<span><button type="button" class="chip" id="b-desde" aria-pressed="${S.desde === '2024-01'}">Ver desde 2024</button></span>`;
+  const o = { meses: mesesGraf(), series: seriesDe(sel), estados: true, incompletos: S.dist === 'TODOS' ? [] : incompletosDe([S.dist]), eje: v => v === 0 ? '₡0' : '₡' + fCx(v), tip: fC, titulo: 'Tendencia del mix en colones' };
+  grafico($('#ch-total'), o);
+  $('#lg-total').innerHTML = leyenda(o.series, true) + (o.incompletos.length ? '<span><i class="sw" style="border:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #D99A22"></i>mes incompleto</span>' : '');
+  const b = $('#b-desde'); if (b) b.setAttribute('aria-pressed', S.desde === '2024-01');
+  const tb = document.querySelector('[data-tabla="ch-total"]'); if (tb && tb.getAttribute('aria-pressed') === 'true') $('#ch-total-tb').innerHTML = tablaSeries(o);
 }
 
-/* ---------- lista ---------- */
+/* ---------- tus distribuidores: fuente de la demanda ---------- */
+function pintarDistribuidores() {
+  const filas = D.clases.map(cl => {
+    const s2 = P.filter(p => p.clase === cl), r2 = resumen(s2), d = D.distribuidores[cl] || {}, e = r2.doh == null ? null : estInv(r2.doh, cl);
+    const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pk.sesgoReal : r2.sesgo;
+    return `<tr><td class="l"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
+      <td class="l" style="white-space:normal">${pill('src', fuenteTxt(cl))}${inc.map(m => ' <span class="pill warn" title="' + esc(incTxt(cl, m)) + '">' + esc(ml(m) + ' ' + incTxt(cl, m)) + '</span>').join('')}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
+      <td>${s2.length}</td><td>${r2.doh == null ? '—' : fN(r2.doh) + (e ? ' · ' + esc(e[1].toLowerCase()) : '')}</td><td class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
+      <td class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk && pk.accReal != null ? `<small class="muted" style="display:block">precisión ${nf.format(Math.max(0, pk.accReal) * 100)} %</small>` : ''}</td></tr>`;
+  }).join('');
+  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl"><thead><tr><th class="l">Distribuidor</th><th class="l">Demanda (fuente)</th><th>Productos</th><th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th>Tu forecast pasado vs venta</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <p class="small muted" style="margin-top:8px"><b>Sell through</b> = lo que el distribuidor le vende a sus clientes (su reporte). <b>Sell out</b> = lo que las tiendas de una cadena venden al consumidor (escáner). <b>Sell in directo</b> = lo que Brinova factura: en esos clientes es la demanda. El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>`;
+}
+
+/* ---------- lista (de 60 en 60) ---------- */
 function pintarLista() {
   const ord = {
     valor: (a, b) => pv(b, algPz6(b)) - pv(a, algPz6(a)),
@@ -241,64 +608,105 @@ function pintarLista() {
     dif: (a, b) => Math.abs(dif(b) ?? 0) - Math.abs(dif(a) ?? 0),
   }[S.orden];
   const L = filtrados().sort(ord);
-  const head = `<div class="lhead"><span>Producto</span><span>12 meses + pronóstico</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${ml(MK[0])}–${ml(MK[5])}</span><span class="r">Tu forecast</span><span class="r">Precio lista</span></div>`;
+  const head = `<div class="lhead"><span>Producto</span><span>12 meses + algoritmo</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">Precio lista</span></div>`;
   if (!L.length) { $('#lista').innerHTML = head + '<div class="vacio">Ningún producto cumple el filtro. Prueba con “Todos”.</div>'; return; }
-  $('#lista').innerHTML = head + L.map(p => {
-    const f = fac(p), a = alertas(p), pr = precioU(p, p.princ);
+  $('#lista').innerHTML = head + L.slice(0, S.lim).map(p => {
+    const f = fac(p), a = alertas(p), pr = precioU(p, p.princ), t = tend(p), d = dif(p), e = estInv(dias(p), p.clase);
     return `<button type="button" class="item" data-p="${esc(p.id)}">
       <span class="c-nm" style="min-width:0"><span class="nm">${esc(p.nombre)}</span>
-        <span class="meta">${S.dist === 'TODOS' ? esc(p.clase) + ' · ' : ''}${esc(p.principal)} · ${esc(uNom(p))}</span>
-        ${a.length ? `<span class="row" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${a.slice(0, 2).map(([c, t]) => pill(c, t)).join('')}</span>` : ''}</span>
-      <span>${spark(p)}</span>
-      <span class="r">${pillTend(tend(p))}</span>
-      <span class="r">${p.inv ? pillDias(dias(p)) + `<span class="meta" style="display:block">${fN(p.inv.pz / f)} u</span>` : '<span class="meta">venta directa</span>'}</span>
-      <span class="r v">${fN(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
-      <span class="r v">${fN(kamPz6(p) / f)}<small>${pillDif(dif(p))}</small></span>
-      <span class="r v">${pr != null ? '₡' + nf.format(pr) : '<span class="pill bad">sin precio</span>'}</span>
+        <span class="meta">${S.dist === 'TODOS' ? esc(p.clase) + ' · ' : ''}${esc(p.principal)} · ${esc(uNom(p))} · ${esc(fuenteTxt(p.clase))}</span>
+        ${a.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}</span>` : ''}</span>
+      <span data-l="12 meses + algoritmo">${spark(p)}</span>
+      <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
+      <span class="r v" data-l="Inventario">${p.inv ? fN1(p.inv.pz / f) + `<small>${e ? pill(e[0], fN(dias(p)) + ' días') : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
+      <span class="r v" data-l="Algoritmo">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
+      <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
+      <span class="r v" data-l="Precio lista">${pr != null ? fC2(pr) : pill('bad', 'sin precio')}<small>por ${esc(String(p.princ.tipo || p.princ.pres || 'unidad').toLowerCase())}</small></span>
     </button>`;
-  }).join('');
+  }).join('') + (L.length > S.lim ? `<div class="mas"><button type="button" class="btn" data-mas>Mostrar ${Math.min(60, L.length - S.lim)} más (${L.length - S.lim} restantes)</button></div>` : '');
 }
 
-/* ---------- captura (formato formulario) ---------- */
-let filasGrid = [];
-function pintarGrid() {
-  const q = S.q2.toLowerCase();
-  const L = P.filter(p => enDist(p) && p.cap.length && (!q || textoP(p).includes(q)) && pasaChip(p, S.chip2))
+/* ---------- captura (formato formulario, de 25 en 25 productos) ---------- */
+let filasGrid = [], prodGrid = [];
+function mesesCaptura() { if (S.capVista === 'curso') return MV.slice(); if (S.capVista === 'todo') return mesesAnio(); return MK.slice(); }
+function listaCaptura() {
+  const q = S.q2.trim().toLowerCase();
+  return P.filter(p => enDist(p) && p.cap.length && (!q || p.txt.includes(q)) && pasaChip(p, S.chip2))
     .sort((a, b) => a.clase.localeCompare(b.clase) || pv(b, algPz6(b)) - pv(a, algPz6(a)));
-  filasGrid = [];
-  let h = `<thead><tr><th class="l">Producto / código</th><th class="l">Presentación</th><th>Precio lista</th>${MK.map(m => `<th>${ml(m)}</th>`).join('')}<th>Total</th><th>Valor</th></tr></thead><tbody>`;
-  L.forEach(p => {
-    const algU = p.princ.pzPorU ? sum(p.alg, MK) / p.princ.pzPorU : null;
-    h += `<tr class="grp" data-p="${esc(p.id)}"><td colspan="${5 + MK.length}">${esc(p.nombre)}<small>${esc(p.clase)} · algoritmo ${fN(algU)} ${esc(p.princ.pres.toLowerCase() === 'caja' ? 'cajas' : 'u')} de ${esc(p.principal)} en 6 meses · ${pillDif(dif(p))}</small></td></tr>`;
+}
+function celdaInput(p, c, m, pref) {
+  const pc = c.cod === p.principal && c.pzPorU, al = pc ? (p.alg[m] || 0) / c.pzPorU : null, vg = vig(c, m), sinF = CAL && (CAL.mesesSinFormulario || []).includes(m), aa = siU(p, c, addM(m, -12)), ra = pc ? (p.real[addM(m, -12)] || 0) / c.pzPorU : null;
+  const iid = pref + '-' + sid(c.id) + '-' + m, hid = iid + '-h';
+  return `<input class="inp${editado(c, m) ? ' ed' : ''}" id="${iid}" data-line="${esc(c.id)}" data-mes="${m}" inputmode="numeric" enterkeyhint="next" autocomplete="off"${editable(m) ? '' : ' readonly'} value="${kamU(c, m)}" aria-label="${esc(c.cod + ' ' + mll(m))}" aria-describedby="${hid}">`
+    + `<span class="hint" id="${hid}">${al != null ? 'alg ' + fN1(al) + ' · ' : ''}${sinF ? 'sin formulario previo' : 'ant ' + (vg == null ? '—' : fN(vg))}${ra != null ? '<br>año pas. ' + fN1(ra) : (aa != null ? '<br>SI año pas. ' + fN1(aa) : '')}</span>`;
+}
+function celdaCap(p, c, m) {
+  const e = estadoMes(m), pc = c.cod === p.principal && c.pzPorU, u = c.pzPorU || 1;
+  if (e === 'abierto') return `<td class="st-abierto">${celdaInput(p, c, m, 'i')}</td>`;
+  if (e === 'curso') { const av = c.avanceU != null ? c.avanceU : (pc && p.avanceSellInPz && p.avanceSellInPz[m] != null ? p.avanceSellInPz[m] / u : null);
+    return `<td class="st-curso"><span class="lock">${ICO.lock}<b>${fN(vig(c, m))}</b></span><span class="hint">${OFICIAL_CURSO ? 'oficial' : 'vigente'}${av != null ? '<br>facturado al ' + esc(fechaCorta(D.avanceHasta).slice(0, 5)) + ': ' + fN1(av) : ''}</span></td>`; }
+  if (e === 'real' || e === 'pend') { const kp = c.kamPasado && c.kamPasado[m], s = siU(p, c, m);
+    return `<td class="st-real">${pc ? 'real ' + fN1((p.real[m] || 0) / u) : '—'}<span class="hint">${kp != null ? 'dijiste ' + fN(kp) : ''}${s != null ? (kp != null ? ' · ' : '') + 'SI ' + fN1(s) : ''}</span></td>`; }
+  return `<td class="st-ref">${pc ? 'alg ' + fN1((p.alg[m] || 0) / u) : '—'}</td>`;
+}
+function grupoCap(p, ncols) {
+  const f = fac(p), d = dif(p), a = alertas(p), av = avisosCaptura(p);
+  return `<tr class="grp" data-g="${esc(p.id)}"><th class="stk" scope="rowgroup" colspan="2"><div class="gwrap"><button type="button" class="nmp" data-p="${esc(p.id)}">${esc(p.nombre)}</button><span class="small muted">${esc(p.clase)} · ${esc(fuenteTxt(p.clase))}</span></div></th>
+    <td colspan="${ncols}" style="text-align:left"><div class="gwrap small"><span>Algoritmo <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>
+    ${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}<span data-ga="${esc(p.id)}">${av.map(([c, x]) => pill(c, x.length > 70 ? x.slice(0, 68) + '…' : x)).join(' ')}</span></div></td></tr>`;
+}
+function pintarGrid() {
+  const L = listaCaptura(), ms = mesesCaptura(), lim = L.slice(0, S.capLim);
+  filasGrid = []; prodGrid = lim;
+  let h = `<thead><tr><th class="stk l" scope="col">Producto / código</th><th scope="col">Precio lista</th>${ms.map(m => { const e = estadoMes(m); return `<th scope="col" class="st-${e}">${ml(m)}<small>${EST_C[e]}</small></th>`; }).join('')}<th scope="col">Total captura</th><th scope="col">Valor</th></tr></thead><tbody>`;
+  lim.forEach(p => {
+    h += grupoCap(p, ms.length + 2);
     p.cap.forEach(c => {
       filasGrid.push(c.id);
       const pr = precioU(p, c);
-      h += `<tr><td class="l"><b>${esc(c.cod)}</b><span class="hint">${esc(c.desc)}</span></td><td class="l">${esc(c.pres)}${c.pzPorU > 1 ? ' ×' + fN(c.pzPorU) : ''}</td><td>${pr != null ? '₡' + nf.format(pr) : '—'}</td>`;
-      MK.forEach(m => {
-        const al = c.cod === p.principal && c.pzPorU ? Math.round((p.alg[m] || 0) / c.pzPorU) : null;
-        h += `<td><input class="inp${editado(c, m) ? ' ed' : ''}" id="i-${c.id}-${m}" data-line="${c.id}" data-mes="${m}" inputmode="numeric" value="${kamU(c, m)}" aria-label="${esc(c.cod)} ${ml(m)}">${al != null ? `<span class="hint">alg. ${fN(al)}</span>` : ''}</td>`;
-      });
-      h += `<td class="num" id="t-${c.id}"></td><td class="num" id="v-${c.id}"></td></tr>`;
+      h += `<tr><th class="stk codr" scope="row"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}<small>${esc(c.desc)}</small><small>En ${esc(uCod(c))} · sell in 12M ${fN(c.u12)}</small></th><td>${pr != null ? fC2(pr) : pill('bad', 'sin precio')}</td>`;
+      ms.forEach(m => { h += celdaCap(p, c, m); });
+      h += `<td class="num" id="t-${esc(c.id)}"></td><td class="num" id="v-${esc(c.id)}"></td></tr>`;
     });
   });
-  if (!L.length) h += `<tr><td class="l" colspan="${5 + MK.length}">Ningún producto cumple el filtro.</td></tr>`;
-  h += `</tbody><tfoot><tr><td class="l" colspan="3">Total en colones (lista)</td>${MK.map(m => `<td id="f-${m}"></td>`).join('')}<td></td><td id="f-tot"></td></tr></tfoot>`;
+  if (!L.length) h += `<tr><td class="l" colspan="${4 + ms.length}">Ningún producto cumple el filtro.</td></tr>`;
+  h += `</tbody><tfoot><tr><th class="stk l" scope="row" colspan="2">Total en colones (lista)${lim.length < L.length ? ' · productos mostrados' : ''}</th>${ms.map(m => `<td id="f-${m}"></td>`).join('')}<td></td><td id="f-tot"></td></tr></tfoot>`;
   $('#grid').innerHTML = h;
-  filasGrid.forEach(totFila); pieGrid();
+  $('#grid-mas').innerHTML = L.length > S.capLim ? `<div class="mas"><button type="button" class="btn" data-capmas>Mostrar ${Math.min(25, L.length - S.capLim)} productos más (${L.length - S.capLim} restantes)</button></div>` : '';
+  filasGrid.forEach(totFila); pieGrid(); pintarResumenCap();
 }
 function totFila(id) {
-  const { p, c } = LINES[id], t = $('#t-' + CSS.escape(id)), v = $('#v-' + CSS.escape(id));
+  const { p, c } = LINES[id], t = document.getElementById('t-' + id), v = document.getElementById('v-' + id);
   if (!t) return;
   const u = MK.reduce((a, m) => a + kamU(c, m), 0), pr = precioU(p, c);
   t.textContent = fN(u); v.textContent = pr != null ? fC(u * pr) : '—';
 }
 function pieGrid() {
   let tot = 0;
-  MK.forEach(m => {
+  mesesCaptura().forEach(m => {
+    const el = document.getElementById('f-' + m); if (!el) return;
+    const e = estadoMes(m); if (e !== 'abierto' && e !== 'curso') { el.textContent = ''; return; }
     const s = filasGrid.reduce((a, id) => { const { p, c } = LINES[id], pr = precioU(p, c); return a + (pr ? kamU(c, m) * pr : 0); }, 0);
-    tot += s; const el = $('#f-' + m); if (el) el.textContent = fC(s);
+    if (e === 'abierto') tot += s; el.textContent = fC(s);
   });
   const ft = $('#f-tot'); if (ft) ft.textContent = fC(tot);
+}
+function pintarResumenCap() {
+  const sel = P.filter(enDist), r = resumen(sel);
+  const nEd = sel.reduce((a, p) => a + p.codigos.filter(c => MK.some(m => editado(c, m))).length, 0);
+  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b>, en la unidad de tu formulario. Viene lleno con tu formulario vigente; cambia solo lo que quieras ajustar. Cada cambio se guarda solo.</p>
+    <p class="small muted">${esc(mll(MC).replace(/^./, c => c.toUpperCase()))} está en curso y se ve con candado (${OFICIAL_CURSO ? 'valor oficial' : 'valor vigente de tu formulario'}).${CAP_HASTA ? ' La captura cierra el ' + esc(fechaCorta(CAP_HASTA)) + '.' : ''} Debajo de cada casilla: <b>alg</b> = algoritmo, <b>ant</b> = tu forecast anterior (formulario), <b>año pas.</b> = venta real del mismo mes del año pasado. En “Todo el año”, los meses cerrados dicen <b>real</b> (venta real), <b>dijiste</b> (tu forecast de ese mes) y <b>SI</b> (sell in facturado). Toca una casilla para ver todo en el inspector.</p>
+    <p class="small muted solo-movil">En el celular es más cómodo capturar desde el detalle de cada producto: toca su nombre en la tabla.</p>
+    ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
+  $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Algoritmo: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
+}
+function inspector(id, m) {
+  const el = $('#insp'); if (!el || !LINES[id]) return;
+  const { p, c } = LINES[id], u = c.pzPorU || 1, aa = addM(m, -12), pr = precioU(p, c), pc = c.cod === p.principal && c.pzPorU, un = plural(c.tipo || c.pres), s = siU(p, c, aa);
+  const it = (k, v) => `<span class="it"><span>${k}</span><b>${v}</b></span>`;
+  el.classList.remove('vacio');
+  el.innerHTML = `${it(esc(c.cod) + ' · ' + ml(m), fN(kamU(c, m)) + ' ' + esc(un) + ' = ' + fN(kamU(c, m) * u) + ' pz')}${it('Forecast anterior', vig(c, m) == null ? '—' : fN(vig(c, m)))}${it('Algoritmo', pc ? fN1((p.alg[m] || 0) / u) : 'ver ' + esc(p.principal))}${it('Real ' + ml(aa), pc ? fN1((p.real[aa] || 0) / u) : fN1((p.real[aa] || 0) / u) + ' (producto)')}${it('Sell in ' + ml(aa), s == null ? '—' : fN1(s))}${it('Valor', fC(kamU(c, m) * (pr || 0)))}
+    <button type="button" class="btn" data-exp="cel" data-c="${esc(c.id)}" data-m="${m}">¿De dónde sale?</button>`;
 }
 
 /* ---------- cómo se calcula: textos según las fuentes del KAM ---------- */
@@ -307,10 +715,10 @@ function textoFuentes() {
   const de = t => D.clases.filter(c => tipoDe(c) === t);
   const st = de('sell through'), so = de('sell out'), dir = de('sell in directo');
   const out = [];
-  if (st.length) out.push(`<p><b>Venta del distribuidor</b>: el reporte mensual de ventas de ${esc(lista(st.map(c => { const f = D.distribuidores[c].fuente || []; return f.length && f[0] !== c ? f.join('/') + ' (' + c + ')' : c; })))} a sus clientes (sell through), convertido a productos Brinova.</p>`);
-  if (so.length) out.push(`<p><b>Venta al consumidor</b>: lo que venden las tiendas de ${esc(lista(so))} según sus escáneres (sell out), convertido a productos Brinova. En Walmart solo cuentan las tiendas de Costa Rica.</p>`);
-  if (dir.length) out.push(`<p>En <b>${esc(lista(dir))}</b> la venta es la facturación directa de Brinova.</p>`);
-  if (D.clases.includes('PANAMA')) out.push('<p>En <b>PANAMA</b> se suma lo que Brinova le vende directo a Supermercados Xtra (marca LIKE).</p>');
+  if (st.length) out.push(`<p><b>Sell through</b> (venta del distribuidor): el reporte de ventas de ${esc(lista(st.map(c => { const f = (D.distribuidores[c].fuente || []).filter(x => x !== c); return f.length ? f.join('/') + ' (' + c + ')' : c; })))} a sus clientes, convertido a piezas Brinova.</p>`);
+  if (so.length) out.push(`<p><b>Sell out</b> (venta al consumidor): lo que venden las tiendas de ${esc(lista(so))} según sus escáneres, convertido a piezas Brinova. En Walmart solo cuentan las tiendas de Costa Rica.</p>`);
+  if (dir.length) out.push(`<p>En <b>${esc(lista(dir))}</b> la demanda es la <b>facturación directa</b> de Brinova (sell in directo): la razón contra el sell in siempre da 1.</p>`);
+  if (D.clases.includes('PANAMA')) out.push(`<p><b>PANAMA es mixto</b>: FEDURO (sell through) más lo que Brinova le factura directo a Supermercados Xtra (marca LIKE)${mezclaDe('PANAMA') ? ' (' + esc(fuenteTxt('PANAMA')) + ')' : ''}.</p>`);
   return out.join('');
 }
 function textoInventario() {
@@ -319,150 +727,286 @@ function textoInventario() {
   const mens = st.filter(c => D.distribuidores[c].invCortes >= 6), poc = st.filter(c => D.distribuidores[c].invCortes > 0 && D.distribuidores[c].invCortes < 6), nada = st.filter(c => !D.distribuidores[c].invCortes);
   return `<p><b>Inventario</b>: el último reporte de inventario de cada distribuidor.${mens.length ? ' ' + esc(lista(mens)) + (mens.length > 1 ? ' mandan' : ' manda') + ' uno casi cada mes.' : ''}${poc.length ? ' De ' + esc(lista(poc)) + ' hay pocos cortes.' : ''}${nada.length ? ' De ' + esc(lista(nada)) + ' no hay inventario.' : ''}</p>`;
 }
-/* ---------- cómo se calcula ---------- */
 function pintarMetodo() {
-  const ej = P.filter(p => tipoDe(p.clase) !== 'sell in directo' && p.princ.calc).sort((a, b) => pv(b, algPz6(b)) - pv(a, algPz6(a)))[0];
+  const ej = P.filter(p => tipoDe(p.clase) !== 'sell in directo' && p.princ.calc && !inter(p.princ.calc)).sort((a, b) => pv(b, algPz6(b)) - pv(a, algPz6(a)))[0];
   const c = ej && ej.princ.calc, f = ej ? ej.uPz || 1 : 1, m0 = MK[0];
-  const base = c ? (c.l3 + c.l6 + c.l12) / 3 : 0;
+  const base = c ? (c.base != null ? c.base : (c.l3 + c.l6 + c.l12) / 3) : 0, un = ej ? (ej.uPz > 1 ? plural(ej.princ.tipo || ej.princ.pres) + ' de ' + fN(ej.uPz) + ' pz' : 'piezas') : '';
+  const vd = filasVersion(), pk = precKam('TODOS');
+  const ries = KAMN === 'MONICA' ? 30 : 15;
   $('#v-metodo').innerHTML = `<div class="metodo">
   <section class="panel prosa"><h3>1. De dónde salen los datos</h3>
     ${textoFuentes()}
-    <p><b>Facturado por Brinova</b>: lo que Brinova le vendió al cliente (sell in). En un año, la venta del cliente y lo facturado deben parecerse; cuando no, el producto sale marcado como <i>dato a revisar</i>.</p>
+    <p><b>Sell in (facturado por Brinova)</b>: lo que Brinova le vendió al cliente. En un año, la venta del cliente y lo facturado deben parecerse; cuando no, el producto sale marcado como <i>dato a revisar</i>.</p>
     ${textoInventario()}
-    <p>Datos reales hasta <b>${mll(D.corte)}</b>. Generado el ${esc(D.generado)}.</p></section>
-  <section class="panel prosa"><h3>2. Cómo calcula el algoritmo</h3>
-    <p>Para cada producto y distribuidor toma la venta promedio de los últimos 3, 6 y 12 meses (contando solo los meses en que hubo venta) y los promedia. Eso es la <b>base mensual</b>.</p>
-    <p>Después la ajusta por <b>temporada</b>: un índice por mes sale de 2024 y 2025. 1,00 es un mes normal; 1,20 es un mes 20% más fuerte. Se limita entre 0,4 y 2,0.</p>
-    <div class="formula">forecast del mes = (prom. 3M + prom. 6M + prom. 12M) ÷ 3 × índice del mes</div>
-    ${c ? `<p>Ejemplo, <b>${esc(ej.nombre)}</b> en ${esc(ej.clase)} (${esc(uNom(ej))}): (${fN(c.l3 / f)} + ${fN(c.l6 / f)} + ${fN(c.l12 / f)}) ÷ 3 = ${fN(base / f)}; × ${nf2.format(c.idx[m0] || 1)} en ${ml(m0)} = <b>${fN((c.fc[m0] || 0) / f)}</b>.</p>` : ''}
-    <p>Si un producto vendió en <b>4 meses o menos</b> del último año (un cliente que compra pocas veces), se promedia sobre todos los meses y sin índice de temporada: así no se multiplica una compra grande.</p>
-    <p>Si un producto lleva <b>6 meses o más sin venta</b>, el algoritmo lo deja en 0.</p></section>
+    <p>Datos reales hasta <b>${mll(D.corte)}</b>. Generado el ${esc(D.generado)}.${incompletosDe(D.clases).length ? ' Meses incompletos (marcados con ▲ en los gráficos): ' + D.clases.filter(cl => (INCOMP[cl] || []).length).map(cl => esc(cl) + ' ' + INCOMP[cl].map(ml).join(', ')).join(' · ') + '.' : ''}</p>
+    ${D.reglaMesesIncompletos ? `<p class="small muted">Regla de mes incompleto: ${esc(D.reglaMesesIncompletos)}</p>` : ''}
+    ${vd.length ? `<div class="tw"><table class="tbl"><caption style="padding:8px 10px">Fecha de cada fuente${D.versionDatos.sello ? ' · corrida ' + esc(D.versionDatos.sello) : ''}</caption><tbody>${vd.map(([k, v]) => `<tr><td class="l" style="white-space:normal">${k}</td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ''}</section>
+  <section class="panel prosa"><h3>2. El algoritmo en 3 pasos</h3>
+    <p><b>Paso 1 · Base</b>: cuánto vende en un mes normal. Promedio de los últimos 3, 6 y 12 meses <b>dividido entre los meses con venta</b>; si compró en ${(D.algoritmo || {}).intermitenteMeses || 4} meses o menos del año (compra pocas veces), se divide entre 3, 6 y 12 meses de calendario. Base = promedio de esos tres.</p>
+    <p><b>Paso 2 · Temporada</b>: un índice por mes sale de la venta de ese mes en 2024 y 2025 contra un mes normal. 1,00 es un mes normal; 1,20 es un mes 20 % más fuerte. Se limita entre 0,4 y 2,0. A los que compran pocas veces no se les aplica.${(D.algoritmo || {}).temporada === 'solo cadenas' ? ' <b>Solo se aplica en cadenas</b> (venta al consumidor en tienda, que sí repite su temporada cada año); en distribuidores, exportación y venta directa las compras siguen pedidos y contenedores y el índice queda en 1,00.' : ''}</p>
+    <p><b>Paso 3 · Reglas</b>: base × índice, redondeado. Si un código lleva <b>6 meses o más sin venta</b>, el algoritmo lo deja en 0.</p>
+    <div class="formula">algoritmo del mes = (prom. 3M + prom. 6M + prom. 12M) ÷ 3 × índice del mes</div>
+    ${c ? `<p>Ejemplo, <b>${esc(ej.nombre)}</b> en ${esc(ej.clase)} (${esc(un)}): (${fN1(c.l3 / f)} + ${fN1(c.l6 / f)} + ${fN1(c.l12 / f)}) ÷ 3 = ${fN1(base / f)}; × ${nf2.format((c.idx && c.idx[m0]) || 1)} en ${ml(m0)} = <b>${fN1(((c.fc && c.fc[m0]) || 0) / f)}</b>.</p>` : ''}</section>
   <section class="panel prosa"><h3>3. Qué tan bien funciona</h3>
-    <p>Se probó pronosticando mayo a octubre de 2026 con datos solo hasta abril, con todos los KAM. Error típico: <b>${D.bt.pc}%</b> por producto y cliente, <b>${D.bt.cliente}%</b> por cliente y <b>${D.bt.kam}%</b> por KAM; en total pronosticó ${D.bt.sesgo}% de más. El modelo que se usaba antes fallaba ${D.bt.antes}% por producto.</p>
-    <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige.</p></section>
-  <section class="panel prosa"><h3>4. En qué afecta tu número</h3>
-    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor.</p>
-    <p>Si pones mucho más que el algoritmo, se produce de más y el producto se queda en bodega. Si pones mucho menos, puede faltar producto. Cuando te separes mucho (más de 50%), deja un comentario con el motivo.</p>
-    <p><b>Días de inventario</b> = inventario del distribuidor ÷ su venta diaria promedio de los últimos 3 meses. Menos de 15 días: riesgo de quiebre. Más de 90: tiene de más y comprará menos.</p></section>
+    <p>Se probó pronosticando mayo a octubre de 2026 con datos solo hasta abril, con todos los KAM. Error típico: <b>${esc(D.bt.pc)} %</b> por producto y cliente, <b>${esc(D.bt.cliente)} %</b> por cliente y <b>${esc(D.bt.kam)} %</b> por KAM; en total pronosticó ${esc(D.bt.sesgo)} % de más. El modelo que se usaba antes fallaba ${esc(D.bt.antes)} % por producto.</p>
+    ${pk ? `<p><b>Tu forecast pasado</b> (${ml(pk.desde)} – ${ml(pk.hasta)}): ${fP(pk.sesgoReal)} contra la venta real, precisión ${pk.accReal == null ? '—' : nf.format(Math.max(0, pk.accReal) * 100) + ' %'}. ${esc(pk.regla || '')}</p>` : ''}
+    <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Tu forecast pasado contra la venta</b> te dice si sueles ir arriba o abajo.</p></section>
+  <section class="panel prosa"><h3>4. Qué meses capturas</h3>
+    <p>Estamos en el ciclo de <b>${mll(D.ciclo)}</b>. ${esc(mll(MC).replace(/^./, x => x.toUpperCase()))} ya está corriendo: su forecast queda con candado (${OFICIAL_CURSO ? 'el oficial' : 'el de tu formulario vigente'}). Se capturan los ${MK.length} meses siguientes: <b>${rango(MK)}</b>${CAP_HASTA ? ', hasta el ' + fechaCorta(CAP_HASTA) : ''}. Los meses después de la captura muestran el algoritmo como referencia; en “Capturar forecast” → “Todo el año” se ve todo lo cargado.</p>
+    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del algoritmo (más de 50 %, o más de 3 veces en un mes), deja un comentario con el motivo.</p></section>
   <section class="panel prosa"><h3>5. Unidades</h3>
-    <p>Un mismo producto puede tener dos códigos: la <b>unidad</b> y la <b>caja</b>. Brinova a veces factura uno y el distribuidor reporta el otro, así que aquí se juntan por producto. Cada producto se muestra en la presentación que más usas (la de tu formulario). Con el botón <b>Piezas</b> arriba ves todo en piezas.</p></section>
-  <section class="panel prosa"><h3>6. Lo que todavía no considera</h3>
-    <p>Promociones y lanzamientos (los pones tú), órdenes de compra en tránsito, e historia completa de inventario de los distribuidores que no lo mandan cada mes. Se irán agregando.</p>
+    <p>Todo se suma en <b>piezas</b>, la unidad estándar del motor (1 alambrina, 1 esponja). Cada código tiene sus <b>piezas por unidad de venta</b> (T_SKU · UNIDAD DE EMPAQUE): una caja de 120 pz son 120 piezas.</p>
+    <p>Un producto puede tener varios códigos (unidad, caja, pack). Brinova a veces factura uno y el distribuidor reporta otro, así que se juntan por producto. Con <b>Unidad del formulario</b> ves cada producto en la presentación de tu formulario; con <b>Piezas (unidad estándar)</b>, todo en piezas.</p></section>
+  <section class="panel prosa"><h3>6. Inventario y lo que todavía no considera</h3>
+    <p><b>Días de inventario</b> = inventario del distribuidor ÷ su venta diaria de los últimos 3 meses. Menos de ${ries} días: riesgo de quiebre${ries === 30 ? ' (exportación)' : ''}. Más de 90: sobrestock. Más de 180: exceso. Son los mismos umbrales del reporte de distribuidores en Power BI.</p>
+    <p>Todavía no considera promociones y lanzamientos (los pones tú), órdenes de compra en tránsito, ni la historia completa de inventario de los distribuidores que no lo mandan cada mes.</p>
     ${D.formFuera && D.formFuera.length ? `<p>Tu formulario también tiene ${D.formFuera.map(esc).join(', ')}, que todavía no tiene fuente de venta para el algoritmo; no aparece aquí.</p>` : ''}</section>
   </div>`;
 }
 
-/* ---------- panel de producto ---------- */
+/* ---------- detalle del producto (<dialog> modal) ---------- */
 function abrir(id) {
-  const p = P.find(x => x.id === id); if (!p) return;
-  S.abierto = id; pintarDetalle(p);
-  $('#velo').hidden = false; $('#det').hidden = false; $('#det').scrollTop = 0;
-  const b = $('#det .cerrar'); if (b) b.focus();
+  const p = PID[id]; if (!p) return;
+  S.abierto = id;
+  const d = $('#det'); if (!d.open) d.showModal();
+  pintarDetalle(p);
+  const sc = $('#det .det-in'); if (sc) sc.scrollTop = 0;
 }
-function cerrar() { S.abierto = null; $('#velo').hidden = true; $('#det').hidden = true; }
-function seriesProducto(p) {
-  const f = fac(p), div = o => { const r = {}; Object.keys(o).forEach(k => { r[k] = o[k] / f; }); return r; };
-  const pas = MH.filter(m => m >= '2025-01');
-  const s = [];
-  if (tipoDe(p.clase) !== 'sell in directo') s.push({ nombre: 'Facturado por Brinova', tipo: 'col', color: 'var(--s-sin)', dom: MH, data: div(p.sellIn) });
-  s.push({ nombre: nomVenta(tipoDe(p.clase)), tipo: 'line', color: 'var(--s-real)', dom: MH, data: div(p.real) });
-  s.push({ nombre: 'Tu forecast de cada mes', tipo: 'dot', color: 'var(--s-kam)', dom: pas, data: div(p.kamPasadoPz) });
-  s.push({ nombre: 'Algoritmo', tipo: 'dash', color: 'var(--s-alg)', dom: MF, data: div(p.alg) });
-  const k = {}; MK.forEach(m => { k[m] = kamPz(p, m) / f; });
-  s.push({ nombre: 'Tu forecast actual', tipo: 'line', marcas: true, color: 'var(--s-kam)', dom: MK, data: k });
-  return s;
+function cerrar() { const d = $('#det'); if (d.open) d.close(); }
+function cfgProducto(p) {
+  return { meses: mesesGraf(), series: seriesDe([p], p), estados: true, incompletos: INCOMP[p.clase] || [], eje: fCx, tip: v => fN1(v) + ' ' + uNom(p), titulo: 'Mes a mes de ' + p.nombre, izq: 50 };
 }
 function graficoProducto(p) {
   const el = $('#ch-prod'); if (!el) return;
-  const series = seriesProducto(p), todos = MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= S.desde);
-  grafico(el, { meses: todos, series, corte: D.corte, eje: fCx, tip: v => fN(v) + ' ' + uNom(p), titulo: 'Mes a mes de ' + p.nombre, izq: 50 });
-  $('#lg-prod').innerHTML = leyenda(series);
+  const o = cfgProducto(p);
+  grafico(el, o);
+  $('#lg-prod').innerHTML = leyenda(o.series, true);
+  const tb = document.querySelector('[data-tabla="ch-prod"]'); if (tb && tb.getAttribute('aria-pressed') === 'true') $('#ch-prod-tb').innerHTML = tablaSeries(o);
 }
-function bloqueCalculo(p, c) {
-  const f = fac(p), k = c.calc, base = (k.l3 + k.l6 + k.l12) / 3;
-  let h = `<div class="cod"><div class="cod-h"><b>${esc(c.cod)}</b><span class="meta">${esc(c.desc)}</span></div>`;
-  if (k.estado !== 'ACTIVO') h += `<div class="aviso">Lleva ${fN(k.sinVenta)} meses sin venta (última: ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). El algoritmo lo deja en 0 hasta que vuelva a venderse.</div>`;
-  h += `<dl class="calc">
-    <dt>Promedio últimos 3 meses (${k.mv3} de 3 con venta)</dt><dd>${fN(k.l3 / f)}</dd>
-    <dt>Promedio últimos 6 meses (${k.mv6} de 6 con venta)</dt><dd>${fN(k.l6 / f)}</dd>
-    <dt>Promedio últimos 12 meses (${k.mv12} de 12 con venta)</dt><dd>${fN(k.l12 / f)}</dd>
-    <dt class="tot">Base mensual = promedio de los tres</dt><dd class="tot">${fN(base / f)}</dd></dl>
-    <div class="gridwrap" style="margin-top:8px"><table class="cap" style="min-width:0"><thead><tr><th class="l">Mes</th>${MK.map(m => `<th>${ml(m)}</th>`).join('')}</tr></thead><tbody>
-    <tr><td class="l">Índice de temporada</td>${MK.map(m => `<td>${nf2.format(k.idx[m] || 1)}</td>`).join('')}</tr>
-    <tr><td class="l">Base × índice</td>${MK.map(m => `<td>${fN((k.prom[m] || 0) / f)}</td>`).join('')}</tr>
-    <tr><td class="l"><b>Algoritmo</b></td>${MK.map(m => `<td><b>${fN((k.fc[m] || 0) / f)}</b></td>`).join('')}</tr></tbody></table></div></div>`;
-  return h;
+function lecturaProducto(p) {
+  const f = fac(p), t = tend(p), m0 = MK[0], vigN = p.codigos.reduce((s, c) => s + (vig(c, m0) || 0) * (c.pzPorU || 0), 0) / f;
+  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y tu formulario vigente dice <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${fN(dias(p))} días</b>.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses tu forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses en que diste forecast).` : ''}`;
 }
 function bloqueCaptura(p, c) {
-  const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null;
-  let h = `<div class="cod"><div class="cod-h"><b>${esc(c.cod)}</b><span>${esc(c.pres)}${c.pzPorU > 1 ? ' de ' + fN(c.pzPorU) + ' pz' : ''}</span>
-    <span class="pill kam">lista ${pr != null ? '₡' + nf.format(pr) : 'sin precio'}</span>
-    ${c.precioFact ? `<span class="pill kam">facturado ${'₡' + nf.format(c.precioFact)}${desc != null ? ' · ' + nf.format(desc * 100) + '% desc.' : ''}</span>` : ''}</div>
+  const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null, av = c.avanceU != null ? c.avanceU : (c.cod === p.principal && c.pzPorU && p.avanceSellInPz && p.avanceSellInPz[MC] != null ? p.avanceSellInPz[MC] / c.pzPorU : null);
+  let h = `<div class="cod"><div class="cod-h"><b>${esc(c.cod)}</b><span>${esc(cNom(c))}</span>
+    <span class="pill kam">lista ${pr != null ? fC2(pr) : 'sin precio'}</span>
+    ${c.precioFact ? `<span class="pill kam">facturado ${fC2(c.precioFact)}${desc != null ? ' · ' + nf.format(desc * 100) + ' % desc.' : ''}</span>` : ''}</div>
+    <p class="small muted">${ICO.lock} ${ml(MC)} en curso: <b>${fN(vig(c, MC))}</b> ${esc(plural(c.tipo || c.pres))} (${OFICIAL_CURSO ? 'oficial' : 'vigente'}, no se cambia)${av != null ? ' · facturado al ' + esc(fechaCorta(D.avanceHasta)) + ': ' + fN1(av) : ''} · sell in 12 meses: ${fN(c.u12)} (${fN1((c.u12 || 0) / 12)} al mes)</p>
     <div class="meses">`;
-  MK.forEach(m => {
-    const al = c.cod === p.principal && c.pzPorU ? Math.round((p.alg[m] || 0) / c.pzPorU) : null;
-    h += `<label class="mes">${ml(m)}<input class="inp${editado(c, m) ? ' ed' : ''}" id="d-${c.id}-${m}" data-line="${c.id}" data-mes="${m}" inputmode="numeric" value="${kamU(c, m)}">${al != null ? `<span class="hint">alg. ${fN(al)}</span>` : ''}</label>`;
-  });
+  MK.forEach(m => { h += `<label class="mes">${ml(m)}${celdaInput(p, c, m, 'd')}</label>`; });
   h += `</div><div style="display:flex;gap:8px;flex-wrap:wrap">
-    ${c.cod === p.principal && c.pzPorU ? `<button type="button" class="btn" data-usar-alg="${c.id}">Usar el algoritmo</button>` : ''}
-    <button type="button" class="btn" data-volver="${c.id}">Volver a mi formulario</button></div></div>`;
+    ${c.cod === p.principal && c.pzPorU ? `<button type="button" class="btn" data-usar-alg="${esc(c.id)}"${VENCIDO ? ' disabled' : ''}>Copiar el algoritmo</button>` : ''}
+    <button type="button" class="btn" data-volver="${esc(c.id)}"${VENCIDO ? ' disabled' : ''}>Volver a mi formulario</button></div></div>`;
   return h;
 }
 function textoCierre(p) {
-  const t = tipoDe(p.clase);
-  if (t === 'sell in directo') return `La venta de ${p.clase} es la facturación directa de Brinova, así que siempre cuadra.`;
-  const r = `En 12 meses ${t === 'sell out' ? 'las tiendas vendieron al consumidor' : 'el distribuidor vendió'} ${fN(p.d12)} piezas y Brinova le facturó ${fN(p.s12)}.`;
+  const t = tipoDe(p.clase), f = fac(p);
+  if (t === 'sell in directo') return `En ${esc(p.clase)} la demanda es lo que Brinova facturó: la razón contra el sell in siempre da 1.`;
+  const r = `En 12 meses ${t === 'sell out' ? 'las tiendas vendieron al consumidor' : 'el distribuidor vendió'} ${fN(p.d12)} pz (${fN1(p.d12 / f)} ${esc(uNom(p))}) y Brinova le facturó ${fN(p.s12)} pz (${fN1(p.s12 / f)} ${esc(uNom(p))}).`;
   if (p.cierre === 'OK') return r + ' Cuadra: la tendencia es confiable.';
   if (p.cierre === 'COMPRA SIN VENDER') return r + ' El distribuidor compra pero no reporta venta de este producto: puede estar con otro código en su reporte. Avisa a BI si lo vende.';
   if (p.cierre === 'VENDE SIN COMPRAR') return r + ' Reporta venta sin compras en el año: inventario viejo o código cruzado. Tómalo con cuidado.';
   return r + ' No cuadra: puede ser un problema de unidad en el reporte del distribuidor. BI lo está revisando; usa tu criterio.';
 }
+function htmlOrigen(p) {
+  const t = tipoDe(p.clase), dir = t === 'sell in directo', f = fac(p), L12 = MH.slice(-12), inc = INCOMP[p.clase] || [];
+  const og = p.origenPz && Object.keys(p.origenPz).length ? p.origenPz : null, ogT = og ? Object.values(og).reduce((a, b) => a + b, 0) : 0;
+  return `<div class="panel-h"><h2 id="or-t">Origen de la demanda</h2><span class="nota">${esc(fuenteTxt(p.clase))} · en piezas y en ${esc(uNom(p))}</span></div>
+    <p class="prosa" style="margin-bottom:8px">${fuenteLarga(p.clase)}.</p>
+    ${og ? `<p class="prosa" style="margin-bottom:8px">Este producto, en 12 meses: ${Object.entries(og).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<b>${esc((TIPO[t] || { c: t }).c)}</b> ${fN(v)} pz (${ogT ? nf.format(v / ogT * 100) : 0} %)`).join(' + ')}.</p>` : ''}
+    <p class="aviso info" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
+    <div class="tw" role="region" tabindex="0" aria-label="Demanda y sell in por mes" style="max-height:340px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Demanda (pz)</th>${dir ? '' : '<th>Sell in (pz)</th><th>Sell in − demanda</th>'}<th>Demanda en ${esc(uNom(p))}</th></tr></thead><tbody>
+    ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill warn">▲ ' + esc(incTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><th class="l" scope="row">12 meses</th><td>${fN(p.d12)}</td>${dir ? '' : `<td>${fN(p.s12)}</td><td>${fN(p.s12 - p.d12)}</td>`}<td>${nb('p_cierre', p.cierre === 'OK' ? 'cuadra' : esc(p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</td></tr></tfoot></table></div>
+    <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p>`;
+}
+function htmlAlgoritmo(p) {
+  const cs = p.codigos.filter(c => c.calc);
+  if (!cs.length) return `<div class="panel-h"><h2>Cálculo del algoritmo</h2></div><p class="prosa">Sin venta en el historial: el algoritmo no tiene base para este producto.</p>`;
+  const f = fac(p), ms = MV;
+  return `<div class="panel-h"><h2>Cálculo del algoritmo en 3 pasos</h2><span class="nota">Por código, en ${esc(S.unidad === 'pz' ? 'piezas' : uNom(p))}</span></div>` + cs.map(c => {
+    const k = c.calc, it = inter(k), base = k.base != null ? k.base : (k.l3 + k.l6 + k.l12) / 3, mx = Math.max(k.l3, k.l6, k.l12, base, 1), obs = k.estado !== 'ACTIVO';
+    const aplica = k.idxAplica != null ? !!k.idxAplica : !it;
+    const motivo = k.idxMotivo ? ({ todos: 'regla vigente: se aplica en todos los clientes', cadena: 'cadena', distribuidor: 'distribuidor', 'exportación': 'exportación', exportacion: 'exportación', intermitente: 'compra pocas veces' }[k.idxMotivo] || k.idxMotivo) : (it ? 'compra pocas veces' : '');
+    const fu = k.idxFuente && Array.isArray(k.idxFuente.v1) ? k.idxFuente : null, an = fu ? (fu.anios || [2024, 2025]) : [2024, 2025];
+    const fuente = m => { if (!fu) return null; const j = +m.slice(5, 7) - 1, a = fu.v1[j], b = fu.v2[j], vs = [a, b].filter(x => x != null), s = vs.reduce((x, y) => x + y, 0);
+      return { a, b, n: vs.length, s, prom: fu.prom, idx: !vs.length || s <= 0 || !(fu.prom > 0) ? 1 : Math.min(2, Math.max(0.4, (s / vs.length) / fu.prom)) }; };
+    const bar = (lb, v, cls) => `<div class="barra"><span>${lb}</span><span><span class="b ${cls || ''}" style="width:${(v / mx * 100).toFixed(1)}%"></span></span><span class="v">${fN1(v / f)}</span></div>`;
+    const div = n => it ? n + ' meses (calendario)' : `meses con venta (${n === 3 ? k.mv3 : n === 6 ? k.mv6 : k.mv12} de ${n})`;
+    return `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px"><p style="margin-bottom:10px"><b>${esc(c.cod)}</b> <span class="muted">${esc(c.desc)}</span> ${obs ? pill('warn', 'Sin venta ' + fN(k.sinVenta) + ' meses → 0') : pill('good', 'Activo')} ${it ? pill('acc', 'Compra pocas veces') : ''}</p>
+    ${obs ? `<p class="aviso" style="margin-bottom:10px">Lleva ${fN(k.sinVenta)} meses sin venta (última: ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). La regla deja el algoritmo en 0 hasta que vuelva a venderse${MK.some(m => kamU(c, m) > 0) ? ', pero tu forecast tiene unidades: revisa si sigue vigente' : ''}.</p>` : ''}
+    <div class="pasos3">
+      <div class="p3"><h4><span class="nro">1</span>Base mensual</h4><p class="small muted">${it ? `Vendió en ${k.mv12} de los últimos 12 meses (compra pocas veces): cada promedio se divide entre 3, 6 y 12 meses de calendario, contando los meses sin venta.` : 'Promedio de 3, 6 y 12 meses, dividido entre los meses con venta de cada ventana.'}</p>
+        ${bar('3 meses', k.l3)}${bar('6 meses', k.l6)}${bar('12 meses', k.l12)}${bar('Base', base, 'base')}
+        <p class="small muted">3M ÷ ${div(3)} · 6M ÷ ${div(6)} · 12M ÷ ${div(12)}</p>
+        <div class="formula">(${fN1(k.l3 / f)} + ${fN1(k.l6 / f)} + ${fN1(k.l12 / f)}) ÷ 3 = <b>${fN1(base / f)}</b> por mes</div></div>
+      <div class="p3"><h4><span class="nro">2</span>Temporada</h4><p class="small muted">${aplica ? 'Índice de cada mes (venta de ese mes en 2024 y 2025 contra un mes normal). 1,00 = mes normal; límites 0,4–2,0.' : 'No se aplica temporada' + (motivo ? ' (' + esc(motivo) + ')' : '') + ': el índice queda en 1,00.'}</p>
+        ${ms.map(m => { const v = aplica ? ((k.idx && k.idx[m]) || 1) : 1, w = Math.min(50, Math.abs(v - 1) * 50);
+          return `<div class="idx"><span>${ml(m)}</span><span class="eje"><i style="${v >= 1 ? 'left:50%' : 'right:50%'};width:${w.toFixed(1)}%"></i></span><span class="num">${nf2.format(v)}</span></div>`; }).join('')}
+        ${fu && aplica ? `<details><summary class="small">De dónde sale cada índice (piezas del código)</summary><div class="tw" style="margin-top:6px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>${an[0]}</th><th>${an[1]}</th><th>Prom. mensual</th><th>Índice</th></tr></thead><tbody>
+          ${[...new Set(ms.map(m => m.slice(5, 7)))].map(mm => { const m = ms.find(x => x.slice(5, 7) === mm), x = fuente(m); return `<tr><td class="l">${MES[+mm - 1]}</td><td>${x.a == null ? 'excluido' : fN(x.a)}</td><td>${x.b == null ? 'excluido' : fN(x.b)}</td><td>${fN1(x.prom)}</td><td>${nf2.format(x.idx)}</td></tr>`; }).join('')}
+          </tbody></table></div><p class="small muted" style="margin-top:4px">Índice = promedio del mes en ${an[0]} y ${an[1]} ÷ promedio mensual de los dos años, limitado a 0,4–2,0. Si el mes no tuvo venta, vale 1.</p></details>` : ''}</div>
+      <div class="p3"><h4><span class="nro">3</span>Resultado</h4><p class="small muted">Base × índice, redondeado${obs ? ', y 0 por la regla de 6 o más meses sin venta' : ''}.</p>
+        <div class="tw"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Base × índ.</th><th>Algoritmo</th></tr></thead><tbody>
+        ${ms.map(m => `<tr${m === MC ? ' class="muted"' : ''}><td class="l">${ml(m)}${m === MC ? ' (en curso)' : ''}</td><td>${fN1(((k.prom && k.prom[m]) || 0) / f)}</td><td><b>${fN1(((k.fc && k.fc[m]) || 0) / f)}</b></td></tr>`).join('')}</tbody></table></div></div>
+    </div></div>`;
+  }).join('') + `<p class="tec" style="margin-top:12px">Fuente: ${FUENTE_ALG} → datos.json productos[].codigos[].calc (l3, l6, l12, mv3/6/12, idx, prom, fc). El algoritmo del producto suma todos sus códigos.</p>`;
+}
+function htmlInventario(p) {
+  const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase);
+  const pos = i && i.doh != null ? Math.min(100, i.doh / 200 * 100) : null;
+  return `<div class="panel-h"><h2>Inventario y precio</h2></div><div><div>
+    ${i ? `<p class="prosa">Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(i.pz / f)} ${esc(uNom(p))}</b> (${fN(i.pz)} pz). Vende en promedio ${fN1(p.d3 / 3 / f)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (i.doh == null ? 'sin venta reciente' : fN(i.doh) + ' días') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + ' días.' : ''}</p>
+      ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${rz / 2}%;background:#F6C9C6"></span><span style="width:${45 - rz / 2}%;background:#CFEBDD"></span><span style="width:45%;background:#FBE6BF"></span><span style="width:10%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
+      <div class="escala-l"><span>0</span><span>${rz} quiebre</span><span>90 sobrestock</span><span>180 exceso</span><span>200+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b></p>` : ''}
+      <div class="chart" id="ch-inv" style="margin-top:10px"></div>
+      <p class="small muted">${Object.keys(i.hist || {}).length < 3 ? esc(p.clase) + ' solo ha enviado ' + Object.keys(i.hist || {}).length + ' cortes de inventario: el historial es corto.' : 'Un corte de inventario por mes.'}</p>`
+      : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
+  </div><div style="margin-top:14px">
+    <div class="tw" role="region" tabindex="0" aria-label="Precio por código"><table class="tbl"><caption style="padding:8px 10px">Precio por código</caption><thead><tr><th class="l">Código</th><th class="l">Presentación</th><th>Lista</th><th>Facturado (6M)</th><th>Desc.</th><th>Por pieza</th></tr></thead><tbody>
+    ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</td><td class="l">${esc(cNom(c))}</td><td title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td>${c.precioFact ? fC2(c.precioFact) : '—'}</td><td>${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td>${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <p class="small muted" style="margin-top:8px">El valor de tu forecast es <b>unidades × precio de lista</b> del distribuidor. “Facturado (6M)” = colones facturados ÷ unidades facturadas en los últimos 6 meses (DATA SELL IN). Precio de lista: ${esc([...new Set(p.codigos.map(c => c.precioFuente).filter(Boolean))].join(' / ') || 'FCST_ALGORITMO')}.${p.codigos.some(c => c.precio == null && precioU(p, c) != null) ? ' * = estimado con el precio por pieza del código principal.' : ''}</p>
+  </div></div>`;
+}
 function pintarDetalle(p) {
-  const f = fac(p), t = tend(p), a = alertas(p), pr = precioU(p, p.princ);
-  const kv = MK.reduce((s, m) => s + kamVal(p, m), 0), av = pv(p, algPz6(p));
+  const f = fac(p), t = tend(p), a = alertas(p), av = avisosCaptura(p), e = estInv(dias(p), p.clase), d = dif(p);
   const notaId = p.princ.id, nota = (local[notaId] && local[notaId].nota != null) ? local[notaId].nota : ((remote[notaId] && remote[notaId].nota) || '');
-  const calcs = p.codigos.filter(c => c.calc);
-  const inv = p.inv;
-  $('#det').innerHTML = `
-  <div class="det-h"><div style="min-width:0"><h2>${esc(p.nombre)}</h2>
-    <div class="meta">${esc(p.clase)} · ${esc(p.cat)} · se muestra en ${esc(uNom(p))} (${esc(p.principal)})</div>
-    ${a.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${a.map(([c, x]) => pill(c, x)).join('')}</div>` : ''}</div>
-    <button type="button" class="cerrar" aria-label="Cerrar">Cerrar</button></div>
+  const otros = P.filter(x => x.grupo === p.grupo && x.id !== p.id), inv = p.inv;
+  $('#det').innerHTML = `<div class="det-in">
+  <div class="det-h"><div style="min-width:0"><h2 id="det-t">${esc(p.nombre)}</h2>
+    <div class="meta">${esc(p.clase)} · ${esc(p.cat)} · código principal ${esc(p.principal)} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
+    <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}</div>
+    ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
+    <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
+  <div id="det-avisos">${av.length ? av.map(([c, x]) => `<p class="aviso${c === 'bad' ? ' bad' : ''}" style="margin-bottom:6px">${esc(x)}</p>`).join('') : ''}</div>
   <div class="mini">
-    <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${fN(p.d3 / f)}</span><span class="row">${pillTend(t)}<span class="sub">vs año anterior</span></span></div>
-    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? fN(inv.pz / f) : '—'}</span><span class="row">${inv ? pillDias(inv.doh) : `<span class="sub">${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</span>`}</span></div>
-    <div class="kpi"><span class="lbl">Algoritmo ${ml(MK[0])}–${ml(MK[5])}</span><span class="big">${fN(algPz6(p) / f)}</span><span class="sub">${fC(av)}</span></div>
-    <div class="kpi"><span class="lbl">Tu forecast</span><span class="big" id="det-kam">${fN(kamPz6(p) / f)}</span><span class="row" id="det-kam2">${pillDif(dif(p))}<span class="sub">${fC(kv)}</span></span></div>
+    <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span></div>
+    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(inv.pz / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span><span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : fN(dias(p)) + ' días · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
+    <div class="kpi"><span class="lbl">Algoritmo · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
+    <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el algoritmo · ${fC(kamValM(p, MK))}</span></div>
   </div>
-  <section class="panel"><div class="panel-h"><h2>Mes a mes</h2><span class="nota">${esc(uNom(p))}</span></div>
-    <div class="chart" id="ch-prod"></div><div class="legend" id="lg-prod"></div></section>
-  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2><span class="nota">En la unidad de tu formulario. Se guarda solo.</span></div>
+  <section class="panel"><div class="panel-h"><h2>Mes a mes</h2><span class="nota">${esc(uNom(p))}</span>
+    <span class="der"><button type="button" class="chip" id="b-desde2" aria-pressed="${S.desde === '2024-01'}">Desde 2024</button><button type="button" class="chip" data-tabla="ch-prod" aria-pressed="false">Ver tabla</button></span></div>
+    <div class="chart" id="ch-prod"></div><div class="legend" id="lg-prod"></div><div id="ch-prod-tb"></div>
+    <p class="lectura" style="margin-top:10px" id="det-lectura">${lecturaProducto(p)}</p></section>
+  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2><span class="nota">En la unidad de cada código. ${esc(ml(MC))} está en curso y no se cambia. Se guarda solo.</span></div>
     ${p.cap.map(c => bloqueCaptura(p, c)).join('') || '<p class="prosa">Este producto no tiene un código para capturar en este distribuidor.</p>'}
-    <label class="mes" style="margin-top:10px">Comentario (por qué te separas del algoritmo, promociones, quiebres)<textarea id="nota-${esc(notaId)}" data-nota="${esc(notaId)}">${esc(nota)}</textarea></label>
+    <label class="mes" style="margin-top:10px">Comentario (por qué te separas del algoritmo, promociones, quiebres)<textarea id="nota-${sid(notaId)}" data-nota="${esc(notaId)}">${esc(nota)}</textarea></label>
     <p class="prosa" style="margin-top:8px" id="det-afecta">${afecta(p)}</p></section>
-  <div class="dos">
-    <section class="panel"><div class="panel-h"><h2>Inventario y días</h2></div>${inv ? `
-      <p class="prosa">Al ${inv.fecha ? inv.fecha.slice(8, 10) + '/' + inv.fecha.slice(5, 7) + '/' + inv.fecha.slice(0, 4) : '—'} el distribuidor tenía <b>${fN(inv.pz / f)} ${esc(uNom(p))}</b>. Vende en promedio ${fN(p.d3 / 3 / f)} al mes, así que le alcanza para <b>${inv.doh != null ? fN(inv.doh) + ' días' : '— (sin venta reciente)'}</b>.${inv.dohFuente != null ? ' Su propio reporte dice ' + fN(inv.dohFuente) + ' días.' : ''}</p>
-      <div class="chart" id="ch-inv"></div>
-      <p class="sub" style="color:var(--ink-3);font-size:12px">${Object.keys(inv.hist).length < 3 ? 'Este distribuidor solo ha mandado ' + Object.keys(inv.hist).length + ' cortes de inventario.' : 'Un corte de inventario por mes.'}</p>`
-      : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}</section>
-    <section class="panel"><div class="panel-h"><h2>Precio y calidad del dato</h2></div>
-      <p class="prosa">Precio de lista ${esc(p.clase)}: <b>${pr != null ? '₡' + nf2.format(pr) : 'sin precio'}</b> por ${esc(p.princ.pres.toLowerCase())}${p.princ.precioFact ? `; facturado en promedio (6 meses) ₡${nf2.format(p.princ.precioFact)}` : ''}.</p>
-      <p class="prosa">${textoCierre(p)}</p></section>
-  </div>
-  <section class="panel"><div class="panel-h"><h2>De dónde sale el número del algoritmo</h2><span class="nota">${esc(uNom(p))}</span></div>
-    ${calcs.length ? calcs.map(c => bloqueCalculo(p, c)).join('') : '<p class="prosa">Sin venta en el historial: el algoritmo no tiene base para este producto.</p>'}</section>`;
+  <section class="panel" aria-labelledby="or-t">${htmlOrigen(p)}</section>
+  <section class="panel">${htmlAlgoritmo(p)}</section>
+  <section class="panel">${htmlInventario(p)}</section>
+  <section class="panel"><details class="rs" id="rs-box" data-p="${esc(p.id)}"><summary>Rastreo hasta cliente, fecha y factura<span class="nota">se carga solo al abrirlo</span></summary><div id="rs-cuerpo" style="margin-top:10px"></div></details></section>
+  </div>`;
+  RS.p = p.id; RS.m = null; RS.path = []; RS.dim = null; RS.lim = 200;
   graficoProducto(p);
   if (inv) {
-    const h = {}; Object.keys(inv.hist).forEach(k => { h[k] = inv.hist[k] / f; });
-    const ms = MH.filter(m => m >= '2025-10');
-    grafico($('#ch-inv'), { meses: ms, series: [{ nombre: 'Inventario', tipo: 'col', color: 'var(--s-inv)', dom: ms, data: h }], eje: fCx, tip: v => fN(v) + ' ' + uNom(p), h: 150, izq: 46, titulo: 'Inventario por corte' });
+    const h = {}, ms = MH.filter(m => m >= addM(D.corte, -11)); ms.forEach(m => { if (inv.hist && inv.hist[m] != null) h[m] = inv.hist[m] / f; });
+    grafico($('#ch-inv'), { meses: ms, series: [{ nombre: 'Inventario reportado', tipo: 'col', color: COL.inv, data: h }], eje: fCx, tip: v => fN1(v) + ' ' + uNom(p), h: 150, izq: 46, titulo: 'Inventario por corte' });
   }
 }
 function afecta(p) {
-  const kv = MK.reduce((s, m) => s + kamVal(p, m), 0), av = pv(p, algPz6(p));
+  const kv = kamValM(p, MK), av = pv(p, algPz6(p));
   if (!av && !kv) return 'Sin forecast en estos meses.';
-  return `Tu número vale <b>${fC(kv)}</b> a precio de lista en ${ml(MK[0])}–${ml(MK[5])}; el algoritmo, <b>${fC(av)}</b>. Es lo que Brinova planea producir y facturar para este distribuidor.`;
+  return `Tu número vale <b>${fC(kv)}</b> a precio de lista en ${esc(rango(MK))}; el algoritmo, <b>${fC(av)}</b>. Es lo que Brinova planea producir y facturar para este distribuidor.`;
+}
+function refrescarDetalle(p) {
+  const f = fac(p), d = dif(p);
+  graficoProducto(p);
+  const k = $('#det-kam'); if (k) k.innerHTML = nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`);
+  const k2 = $('#det-kam2'); if (k2) { k2.textContent = flecha(d) + fP(d) + ' contra el algoritmo · ' + fC(kamValM(p, MK)); k2.className = 'vr ' + (d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'); }
+  const af = $('#det-afecta'); if (af) af.innerHTML = afecta(p);
+  const av = $('#det-avisos'); if (av) av.innerHTML = avisosCaptura(p).map(([c, x]) => `<p class="aviso${c === 'bad' ? ' bad' : ''}" style="margin-bottom:6px">${esc(x)}</p>`).join('');
+}
+
+/* ---------- rastreo hasta cliente, fecha y factura (detalle-v1, informe 04): un archivo por producto, a demanda ---------- */
+const RS = { p: null, m: null, path: [], dim: null, lim: 200, cache: {} };
+const SIN_DETALLE = {
+  MONICA: 'El rastreo de Mónica llega después del 27/11: sus archivos de detalle pasan de 1 MB (se publicarán comprimidos) y cuatro de sus países solo reportan el total del mes.',
+  FRANCISCO: 'El rastreo de Francisco llega después del 27/11: el CUBO de las cadenas trae la tienda pero solo el total del mes, sin fecha ni factura.',
+};
+const filaObj = (t, i) => { const o = {}; if (!t || i == null || i < 0 || !t.filas || !t.filas[i]) return o; t.cols.forEach((k, j) => { o[k] = t.filas[i][j]; }); return o; };
+async function cargarRastreo(p) {
+  if (RS.cache[p.id]) return RS.cache[p.id];
+  if (typeof window.portalLeer !== 'function') return { msg: 'El rastreo se abre en el portal web: lee la carpeta <b>detalle/</b> de tu OneDrive. En esta vista no está disponible.' };
+  if (D.calendario && !D.detalle) return { msg: SIN_DETALLE[KAMN] || 'Todavía no hay detalle publicado en tu carpeta. BI lo publica solo cuando cuadra exacto con este portal.' };   // v2 avisa si hay detalle
+  const rutaIx = (D.detalle && D.detalle.indice) || 'detalle/indice.json', carpeta = rutaIx.replace(/[^/]*$/, '');
+  let ix;
+  try { ix = await window.portalLeer(rutaIx); } catch (e) { return { msg: 'No se pudo leer el índice del detalle: ' + esc(e && e.message || e) + '. Revisa la conexión e intenta de nuevo.', reintentar: true }; }
+  if (!ix) return { msg: SIN_DETALLE[KAMN] || 'Todavía no hay detalle publicado en tu carpeta. BI lo publica solo cuando cuadra exacto con este portal.' };
+  if (ix.esquema !== 'detalle-v1') return { msg: 'El detalle publicado tiene un formato que esta página no conoce (' + esc(ix.esquema) + ').' };
+  const meta = ix.productos && ix.productos[p.id];
+  if (!meta) return { ix, msg: `Este producto no tiene ventas en el detalle (${esc(ml(ix.meses[0]))} – ${esc(ml(ix.meses[ix.meses.length - 1]))}).` };
+  let f;
+  try { f = await window.portalLeer(carpeta + meta.archivo); } catch (e) { return { msg: 'No se pudo leer el detalle del producto: ' + esc(e && e.message || e), reintentar: true }; }
+  if (!f) return { ix, msg: 'El índice menciona este producto, pero su archivo no está publicado. Avisa a BI.' };
+  const base = Date.parse((f.base || ix.base) + 'T00:00:00Z'), L = [], tot = {};
+  const pts = f.puntos, ags = f.agentes, lin = f.linajes;
+  for (let i = 0; i < f.d.length; i++) {
+    const fe = new Date(base + f.d[i] * 864e5).toISOString().slice(0, 10), mes = fe.slice(0, 7);
+    const pu = filaObj(pts, f.c ? f.c[i] : null), ag = f.a ? filaObj(ags, f.a[i]) : {}, li = filaObj(lin, f.l ? f.l[i] : null);
+    const pz = f.pz[i]; tot[mes] = (tot[mes] || 0) + pz;
+    L.push({ fecha: fe, mes, factura: f.f && f.f[i] != null ? String(f.f[i]) : '', cod: pu.cod || '', cli: (pu.nombre || pu.cod || 'Sin nombre'), tipo: pu.tipo || 'Sin tipo', canal: pu.canal || (ix.canalPorTipoCliente || {})[pu.tipo] || 'Sin canal',
+      prov: pu.provincia || 'Sin provincia', canton: pu.canton || '', dist: pu.distribuidor || li.distribuidor || '', fuente: pu.fuente || li.fuente || '', agente: ag.cod ? ag.cod + ' · ' + (ag.nombre || '') : 'Sin agente',
+      u: f.u[i], urep: li.unidadReporte || '—', factor: li.factor, codArch: li.codArchivo || '', pt: li.pt || '', pz });
+  }
+  const gran = (ix.clases[p.clase] || {}).granularidadFecha || f.granularidadFecha || {};
+  const res = { ix, f, L, tot, gran, mensual: Object.values(gran).every(g => g === 'mes'), clase: ix.clases[p.clase] || {}, misma: ix.datosGenerado === D.generado };
+  return (RS.cache[p.id] = res);
+}
+function dimsRastreo(res) {
+  const d = [['canal', 'Canal', l => l.canal], ['tipo', 'Tipo de cliente', l => l.tipo]];
+  if (res.L.some(l => l.prov !== 'Sin provincia')) d.push(['prov', 'Provincia', l => l.prov]);
+  if (res.L.some(l => l.agente !== 'Sin agente')) d.push(['agente', 'Agente / ruta', l => l.agente]);
+  d.push(['cli', 'Cliente', l => l.cli + (l.cod ? ' · ' + l.cod : '')]);
+  if (!res.mensual) d.push(['fecha', 'Fecha', l => l.fecha]);
+  return d;
+}
+async function abrirRastreo() {
+  const p = PID[RS.p], box = $('#rs-cuerpo'); if (!p || !box) return;
+  box.innerHTML = '<p class="muted">Cargando el detalle de este producto…</p>';
+  const res = await cargarRastreo(p);
+  if (PID[RS.p] !== p || !$('#rs-cuerpo')) return;
+  if (res.msg) { box.innerHTML = `<p class="aviso${res.reintentar ? ' bad' : ' info'}">${res.msg}</p>${res.reintentar ? '<button type="button" class="btn" data-rs-reintentar style="margin-top:8px">Intentar de nuevo</button>' : ''}`; if (res.reintentar) delete RS.cache[p.id]; return; }
+  const ms = res.ix.meses.filter(m => (res.tot[m] || 0) !== 0 || (p.real[m] || 0) !== 0).reverse();
+  if (!RS.m || !ms.includes(RS.m)) RS.m = ms[0];
+  pintarRastreo();
+}
+function pintarRastreo() {
+  const p = PID[RS.p], res = RS.cache[RS.p], box = $('#rs-cuerpo'); if (!p || !res || !box || !res.L) return;
+  const m = RS.m, f = fac(p), dims = dimsRastreo(res), all = res.L.filter(l => l.mes === m);
+  let L = all; RS.path.forEach(([k, v]) => { const d = dims.find(x => x[0] === k); if (d) L = L.filter(l => d[2](l) === v); });
+  const usadas = RS.path.map(x => x[0]), libres = dims.filter(d => !usadas.includes(d[0]));
+  if (RS.dim !== 'lineas' && (!RS.dim || usadas.includes(RS.dim) || !dims.some(d => d[0] === RS.dim))) RS.dim = libres.length ? libres[0][0] : 'lineas';
+  const totN = L.reduce((a, l) => a + l.pz, 0), totM = all.reduce((a, l) => a + l.pz, 0), real = p.real[m] || 0, cuadra = Math.round(totM) === Math.round(real);
+  const ms = res.ix.meses.filter(x => (res.tot[x] || 0) !== 0 || (p.real[x] || 0) !== 0).reverse();
+  const fuentes = Object.entries(res.gran).map(([k, g]) => k.toLowerCase() + ' · ' + (g === 'día' ? 'diario' : 'mensual')).join(', ');
+  let h = `<p class="small muted" style="margin-bottom:8px">Cada línea es una fila del reporte de ${esc(p.clase)} (${esc(fuentes || fuenteTxt(p.clase))}${res.clase.tieneFactura ? ', con factura' : ''}${res.clase.tieneAgente ? ' y agente' : ''}): <b>unidades del archivo × factor = piezas</b>. La suma de piezas del mes es la venta real que ves en el portal. Los negativos son devoluciones o notas de crédito.</p>
+  ${res.misma ? '' : `<p class="aviso" style="margin-bottom:8px">El detalle es de la corrida del ${esc(res.ix.datosGenerado)} y el portal es del ${esc(D.generado)}: no se compara el cuadre hasta que BI publique los dos de la misma corrida.</p>`}
+  <div class="tools"><label class="small muted" for="rs-m">Mes</label><select id="rs-m">${ms.map(x => `<option value="${x}"${x === m ? ' selected' : ''}>${mll(x)}</option>`).join('')}</select>
+    ${res.mensual ? '<span class="small muted">Este cliente reporta solo el total del mes: no hay fecha diaria.</span>' : ''}</div>
+  <nav class="ruta" aria-label="Nivel de detalle"><button type="button" data-rs-nivel="-1">${esc(ml(m))} · todo</button>${RS.path.map(([k, v], i) => `<span class="sep" aria-hidden="true">›</span><button type="button" data-rs-nivel="${i}">${esc((dims.find(d => d[0] === k) || [0, k])[1])}: ${esc(k === 'fecha' ? fechaCorta(v) : v)}</button>`).join('')}</nav>
+  <div class="cuadre"><span>Este nivel: <b>${fN(totN)} pz</b> = ${fN1(totN / f)} ${esc(uNom(p))} · ${fN(L.length)} líneas</span>
+    <span class="muted">Total del mes en el detalle ${fN(totM)} pz · venta real del portal ${fN(real)} pz</span>${res.misma ? pill(cuadra ? 'good' : 'bad', cuadra ? '✓ cuadra' : 'no cuadra: avisa a BI') : ''}</div>
+  <div class="seg" role="group" aria-label="Agrupar por" style="margin-bottom:10px">${libres.map(d => `<button type="button" data-rs-dim="${d[0]}" aria-pressed="${RS.dim === d[0]}">${d[1]}</button>`).join('')}<button type="button" data-rs-dim="lineas" aria-pressed="${RS.dim === 'lineas'}">Líneas de factura</button></div>`;
+  if (RS.dim === 'lineas') {
+    const vis = L.slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, RS.lim);
+    h += `<div class="tw" role="region" tabindex="0" aria-label="Líneas de factura" style="max-height:460px"><table class="tbl"><thead><tr><th class="l">Fecha</th><th class="l">Factura</th><th class="l">Cliente</th><th class="l">Tipo · provincia · agente</th><th class="l">Código del archivo → PT</th><th>Unidades del archivo</th><th class="l">Unidad del reporte</th><th>Factor (pz)</th><th>Piezas</th></tr></thead><tbody>
+    ${vis.map(l => `<tr><td class="l">${res.mensual ? esc(ml(l.mes)) : fechaCorta(l.fecha)}</td><td class="l">${esc(l.factura || '—')}</td><td class="l" style="white-space:normal;min-width:180px">${esc(l.cli)} <span class="muted small">${esc(l.cod)}</span></td><td class="l small" style="white-space:normal;min-width:160px">${esc(l.tipo)} · ${esc(l.prov)} · ${esc(l.agente)}</td><td class="l small">${esc(l.codArch || '—')} → ${esc(l.pt || p.principal)}</td><td class="${l.pz < 0 ? 'down' : ''}">${fN1(l.u)}</td><td class="l">${esc(l.urep)}</td><td>× ${l.factor == null ? '—' : nf1.format(l.factor)}</td><td><b>${fN1(l.pz)}</b></td></tr>`).join('')}
+    </tbody><tfoot><tr><th class="l" colspan="8" scope="row">Total del nivel (${fN(L.length)} líneas) · en ${esc(uNom(p))}: ${fN1(totN / f)}</th><td>${fN(totN)}</td></tr></tfoot></table></div>
+    ${L.length > RS.lim ? `<div class="mas"><button type="button" class="btn" data-rs-mas>Mostrar ${Math.min(200, L.length - RS.lim)} líneas más (${L.length - RS.lim} restantes)</button></div>` : ''}`;
+  } else {
+    const d = dims.find(x => x[0] === RS.dim), g = new Map();
+    L.forEach(l => { const k = d[2](l), o = g.get(k) || { pz: 0, n: 0, ult: '', fact: new Set() }; o.pz += l.pz; o.n++; if (l.fecha > o.ult) o.ult = l.fecha; if (l.factura) o.fact.add(l.factura); g.set(k, o); });
+    const rows = [...g.entries()].sort((a, b) => d[0] === 'fecha' ? a[0].localeCompare(b[0]) : b[1].pz - a[1].pz), mx = Math.max(...rows.map(r => Math.abs(r[1].pz)), 1);
+    h += `<div class="tw" role="region" tabindex="0" aria-label="Demanda por ${esc(d[1])}" style="max-height:460px"><table class="tbl drill"><thead><tr><th class="l">${esc(d[1])}</th><th>Piezas</th><th>${esc(S.unidad === 'pz' ? 'Piezas' : uNom(p))}</th><th>% del nivel</th><th>Líneas</th>${res.clase.tieneFactura ? '<th>Facturas</th>' : ''}<th class="l">Última fecha</th></tr></thead><tbody>
+    ${rows.slice(0, 300).map(([k, o]) => `<tr data-rs-ir="${esc(k)}" tabindex="0"><td class="l"><b>${esc(d[0] === 'fecha' ? fechaCorta(k) : k)}</b></td><td>${fN1(o.pz)}</td><td>${fN1(o.pz / f)}</td><td>${totN ? nf.format(o.pz / totN * 100) + ' %' : '—'}<span class="barpct" style="width:${(Math.abs(o.pz) / mx * 60).toFixed(0)}px" aria-hidden="true"></span></td><td>${o.n}</td>${res.clase.tieneFactura ? `<td>${o.fact.size}</td>` : ''}<td class="l">${res.mensual ? esc(ml(o.ult.slice(0, 7))) : fechaCorta(o.ult)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><th class="l" scope="row">Total (${rows.length} ${rows.length === 1 ? 'grupo' : 'grupos'})</th><td>${fN(totN)}</td><td>${fN1(totN / f)}</td><td>100 %</td><td>${fN(L.length)}</td>${res.clase.tieneFactura ? '<td></td>' : ''}<td></td></tr></tfoot></table></div>
+    <p class="small muted" style="margin-top:6px">Toca una fila para bajar un nivel. Puedes cambiar el orden: agrupa primero por provincia, agente o fecha.${rows.length > 300 ? ' Se muestran los 300 grupos más grandes; el total incluye todos.' : ''}</p>`;
+  }
+  box.innerHTML = h;
 }
 
 /* ---------- guardar ---------- */
@@ -471,13 +1015,15 @@ let pendientes = 0;
 function estado(t, cls) { $('#estado').innerHTML = `<span class="dot ${cls || ''}"></span><span>${esc(t)}</span>`; }
 function guardarLocal() { try { localStorage.setItem(LS, JSON.stringify({ unidad: S.unidad, local: db ? {} : local })); } catch (e) { } }
 function setKam(id, m, v) {
+  if (!editable(m)) return;                                       // nunca se guarda un mes fuera de la ventana de captura
   local[id] = local[id] || { meses: {} }; local[id].meses = local[id].meses || {}; local[id].meses[m] = v;
   guardarLocal(); programar(id);
 }
 function programar(id) { clearTimeout(timers[id]); estado('Guardando…', 'pend'); timers[id] = setTimeout(() => guardar(id), 700); }
+function soloVentana(o) { const r = {}; Object.keys(o || {}).forEach(m => { if (MK.includes(m)) r[m] = o[m]; }); return r; }
 function guardar(id) {
   const { p, c } = LINES[id], r = remote[id] || {}, l = local[id] || {};
-  const body = { clase: p.clase, cod: c.cod, producto: p.grupo, meses: Object.assign({}, r.meses || {}, l.meses || {}),
+  const body = { clase: p.clase, cod: c.cod, producto: p.grupo, meses: soloVentana(Object.assign({}, r.meses || {}, l.meses || {})),
     nota: l.nota != null ? l.nota : (r.nota || ''), por: uid || '', en: new Date().toISOString() };
   if (!db) { estado('Guardado solo en este navegador', 'pend'); return; }
   pendientes++;
@@ -494,18 +1040,19 @@ function sincronizarInputs() {
     el.classList.toggle('ed', editado(L.c, el.dataset.mes));
   });
 }
+function refrescarGrupo(p) {
+  const f = fac(p), d = dif(p);
+  $$('[data-gt]').forEach(e => { if (e.dataset.gt === p.id) e.textContent = fN1(kamPz6(p) / f); });
+  $$('[data-gd]').forEach(e => { if (e.dataset.gd === p.id) { e.textContent = flecha(d) + fP(d); e.className = d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'; } });
+  $$('[data-ga]').forEach(e => { if (e.dataset.ga === p.id) e.innerHTML = avisosCaptura(p).map(([c, x]) => pill(c, x.length > 70 ? x.slice(0, 68) + '…' : x)).join(' '); });
+}
 let tRef = null;
-function refrescarResumen() {
+function refrescarResumen() {        // repinta solo lo visible
   clearTimeout(tRef);
   tRef = setTimeout(() => {
-    pintarKpis(); pintarTotal(); pintarLista(); filasGrid.forEach(totFila); pieGrid();
-    if (S.abierto) {
-      const p = P.find(x => x.id === S.abierto);
-      graficoProducto(p);
-      $('#det-kam').textContent = fN(kamPz6(p) / fac(p));
-      $('#det-kam2').innerHTML = pillDif(dif(p)) + `<span class="sub">${fC(MK.reduce((s, m) => s + kamVal(p, m), 0))}</span>`;
-      $('#det-afecta').innerHTML = afecta(p);
-    }
+    if (S.vista === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarDistribuidores(); pintarLista(); }
+    if (S.vista === 'capturar') { filasGrid.forEach(totFila); pieGrid(); pintarResumenCap(); prodGrid.forEach(refrescarGrupo); }
+    if (S.abierto) refrescarDetalle(PID[S.abierto]);
   }, 250);
 }
 function pintarEnvio() {
@@ -517,6 +1064,7 @@ function pintarEnvio() {
     if (userCap && envio.por) userCap.profiles([envio.por]).then(ps => { const n = ps[envio.por] && ps[envio.por].name; if (n) el.textContent += ' · ' + n; });
     $('#b-listo').textContent = 'Volver a marcar como listo';
   } else { el.className = 'pill'; el.textContent = 'Sin marcar como listo'; }
+  if (VENCIDO) $('#b-listo').disabled = true;
 }
 
 /* ---------- eventos ---------- */
@@ -525,56 +1073,97 @@ function vista(v) {
   document.querySelectorAll('#f-vista button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
   $('#v-tendencia').hidden = v !== 'tendencia'; $('#v-capturar').hidden = v !== 'capturar'; $('#v-metodo').hidden = v !== 'metodo';
   if (v === 'capturar') pintarGrid();
-  if (v === 'tendencia') { pintarKpis(); pintarTotal(); pintarLista(); }
+  if (v === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarDistribuidores(); pintarLista(); }
 }
 function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(el._t); el._t = setTimeout(() => { el.hidden = true; }, 2600); }
+let tq = null;
+const debounce = fn => { clearTimeout(tq); tq = setTimeout(fn, 160); };
 document.addEventListener('click', ev => {
-  const t = ev.target.closest('button,tr.grp'); if (!t) return;
-  if (t.dataset.d) { S.dist = t.dataset.d; pintarEncabezado(); vista(S.vista); return; }
-  if (t.dataset.v) { vista(t.dataset.v); return; }
-  if (t.dataset.u) { S.unidad = t.dataset.u; guardarLocal(); pintarEncabezado(); vista(S.vista); if (S.abierto) pintarDetalle(P.find(x => x.id === S.abierto)); return; }
-  if (t.dataset.chip) { S.chip = t.dataset.chip; pintarEncabezado(); pintarLista(); return; }
-  if (t.dataset.chip2) { S.chip2 = t.dataset.chip2; pintarEncabezado(); pintarGrid(); return; }
-  if (t.id === 'b-desde') { S.desde = S.desde === '2024-01' ? '2025-01' : '2024-01'; pintarTotal(); if (S.abierto) graficoProducto(P.find(x => x.id === S.abierto)); return; }
-  if (t.dataset.p) { abrir(t.dataset.p); return; }
+  const t = ev.target.closest('button,[data-rs-ir]'); if (!t) return;
+  const ds = t.dataset;
+  if (ds.exp) { const fn = EXP[ds.exp]; if (fn) abrirExp(fn(ds)); return; }
+  if (ds.d) { S.dist = ds.d; S.lim = 60; S.capLim = 25; pintarEncabezado(); vista(S.vista); return; }
+  if (ds.v) { vista(ds.v); return; }
+  if (ds.u) { S.unidad = ds.u; guardarLocal(); pintarEncabezado(); vista(S.vista); if (S.abierto) pintarDetalle(PID[S.abierto]); return; }
+  if (ds.chip) { S.chip = ds.chip; S.lim = 60; pintarEncabezado(); pintarLista(); return; }
+  if (ds.chip2) { S.chip2 = ds.chip2; S.capLim = 25; pintarEncabezado(); pintarGrid(); return; }
+  if (ds.capv) { S.capVista = ds.capv; pintarEncabezado(); pintarGrid(); return; }
+  if ('mas' in ds) { S.lim += 60; pintarLista(); return; }
+  if ('capmas' in ds) { S.capLim += 25; pintarGrid(); return; }
+  if (t.id === 'b-desde' || t.id === 'b-desde2') { S.desde = S.desde === '2024-01' ? '2025-01' : '2024-01'; t.setAttribute('aria-pressed', S.desde === '2024-01'); if (S.vista === 'tendencia') pintarTotal(); if (S.abierto) graficoProducto(PID[S.abierto]); return; }
+  if (ds.tabla) { const el = $('#' + ds.tabla), box = $('#' + ds.tabla + '-tb'), on = t.getAttribute('aria-pressed') !== 'true'; t.setAttribute('aria-pressed', on); box.innerHTML = on && el && el._o ? tablaSeries(el._o) : ''; return; }
+  if (ds.rsNivel != null) { RS.path = RS.path.slice(0, +ds.rsNivel + 1); RS.dim = null; RS.lim = 200; pintarRastreo(); return; }
+  if (ds.rsDim) { RS.dim = ds.rsDim; RS.lim = 200; pintarRastreo(); return; }
+  if (ds.rsIr != null) { RS.path.push([RS.dim, ds.rsIr]); RS.dim = null; RS.lim = 200; pintarRastreo(); return; }
+  if ('rsMas' in ds) { RS.lim += 200; pintarRastreo(); return; }
+  if ('rsReintentar' in ds) { abrirRastreo(); return; }
+  if (ds.p && !ds.exp) { abrir(ds.p); return; }
   if (t.classList.contains('cerrar')) { cerrar(); return; }
-  if (t.dataset.usarAlg || t.dataset.volver) {
-    const id = t.dataset.usarAlg || t.dataset.volver, { p, c } = LINES[id];
-    MK.forEach(m => { setKam(id, m, t.dataset.usarAlg ? Math.round((p.alg[m] || 0) / c.pzPorU) : (c.kam[m] || 0)); });
-    sincronizarInputs(); refrescarResumen(); toast(t.dataset.usarAlg ? 'Se copió el algoritmo' : 'Volvió a tu formulario'); return;
+  if (ds.usarAlg || ds.volver) {
+    const id = ds.usarAlg || ds.volver, { p, c } = LINES[id];
+    MK.forEach(m => { setKam(id, m, ds.usarAlg ? Math.round((p.alg[m] || 0) / c.pzPorU) : (vig(c, m) || 0)); });
+    sincronizarInputs(); totFila(id); refrescarResumen(); toast(ds.usarAlg ? 'Se copió el algoritmo en los meses de captura' : 'Volvió a tu formulario'); return;
   }
   if (t.id === 'b-listo') {
+    if (VENCIDO) { toast('La captura de este ciclo ya cerró'); return; }
     if (!db) { toast('Para marcarlo como listo hay que abrir el enlace con sesión iniciada'); return; }
-    const tot = P.reduce((a, p) => a + MK.reduce((s, m) => s + kamVal(p, m), 0), 0);
+    const tot = P.reduce((a, p) => a + kamValM(p, MK), 0);
     t.disabled = true;
     db.doc(`ciclos/${CID}`).set({ estado: 'listo', por: uid || '', en: new Date().toISOString(), valorLista: Math.round(tot) })
       .then(() => toast('Forecast marcado como listo'), () => toast('No se pudo marcar; revisa tu permiso o la conexión'))
       .finally(() => { t.disabled = false; });
   }
 });
-$('#velo').addEventListener('click', cerrar);
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.abierto) cerrar(); });
+document.addEventListener('keydown', ev => {
+  const t = ev.target;
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.dataset && t.dataset.rsIr != null) { ev.preventDefault(); t.click(); return; }
+  if (ev.key === 'Enter' && t.classList && t.classList.contains('inp')) {      // Enter baja a la casilla de abajo (como en Excel)
+    ev.preventDefault();
+    const caja = t.closest('dialog') || t.closest('#v-capturar') || document, todos = [...caja.querySelectorAll('.inp')], i = todos.indexOf(t);
+    const sig = todos.slice(i + 1).find(o => o.dataset.mes === t.dataset.mes) || todos[i + 1]; if (sig) sig.focus();
+  }
+});
+document.addEventListener('focusin', ev => {
+  const el = ev.target;
+  if (el.classList && el.classList.contains('inp') && el.closest('#v-capturar')) { S.foco = [el.dataset.line, el.dataset.mes]; inspector(el.dataset.line, el.dataset.mes); if (!el.readOnly) el.select(); }
+});
+document.addEventListener('toggle', ev => { if (ev.target.id === 'rs-box' && ev.target.open) abrirRastreo(); }, true);
 document.addEventListener('input', ev => {
   const el = ev.target;
-  if (el.id === 'q') { S.q = el.value; pintarLista(); return; }
-  if (el.id === 'q2') { S.q2 = el.value; pintarGrid(); return; }
+  if (el.id === 'q') { S.q = el.value; S.lim = 60; debounce(pintarLista); return; }
+  if (el.id === 'q2') { S.q2 = el.value; S.capLim = 25; debounce(pintarGrid); return; }
   if (el.dataset.nota) { const id = el.dataset.nota; local[id] = local[id] || { meses: {} }; local[id].nota = el.value; guardarLocal(); programar(id); return; }
   if (el.classList.contains('inp')) {
-    const raw = el.value.replace(/[^\d]/g, ''), v = raw === '' ? 0 : parseInt(raw, 10);
     const id = el.dataset.line, m = el.dataset.mes;
+    if (!editable(m)) { el.value = kamU(LINES[id].c, m); return; }
+    const raw = el.value.replace(/[^\d]/g, ''); if (raw !== el.value) el.value = raw;
+    const v = raw === '' ? 0 : parseInt(raw, 10);
     setKam(id, m, v);
-    const otro = document.getElementById((el.id.startsWith('i-') ? 'd-' : 'i-') + id + '-' + m); if (otro) otro.value = v;
+    $$('.inp').forEach(o => { if (o !== el && o.dataset.line === id && o.dataset.mes === m) o.value = v; });
     el.classList.toggle('ed', editado(LINES[id].c, m));
-    totFila(id); pieGrid(); refrescarResumen();
+    totFila(id); pieGrid(); refrescarGrupo(LINES[id].p); refrescarResumen();
+    if (el.closest('#v-capturar')) inspector(id, m);
   }
 });
 document.addEventListener('change', ev => {
-  if (ev.target.id === 'f-cat') { S.cat = ev.target.value; pintarLista(); }
+  if (ev.target.id === 'f-cat') { S.cat = ev.target.value; S.lim = 60; pintarLista(); }
   if (ev.target.id === 'f-orden') { S.orden = ev.target.value; pintarLista(); }
+  if (ev.target.id === 'rs-m') { RS.m = ev.target.value; RS.path = []; RS.dim = null; RS.lim = 200; pintarRastreo(); }
 });
+$('#det').addEventListener('close', () => { S.abierto = null; RS.p = null; });
+/* cierre al tocar fuera donde el navegador no tiene closedby (Safari) */
+if (typeof HTMLDialogElement !== 'undefined' && !('closedBy' in HTMLDialogElement.prototype)) {
+  document.querySelectorAll('dialog[closedby="any"]').forEach(dlg => {
+    let fuera = false;
+    const out = e => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+    dlg.addEventListener('pointerdown', e => { fuera = out(e); });
+    dlg.addEventListener('pointerup', e => { if (fuera && out(e)) dlg.close(); });
+  });
+}
 
 /* ---------- arranque ---------- */
 pintarEncabezado(); pintarMetodo(); vista('tendencia');
+if (VENCIDO) $('#b-listo').disabled = true;
 (async () => {
   if (!window.claude || !window.claude.use) {
     try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); if (g && g.local) { local = g.local; sincronizarInputs(); refrescarResumen(); } } catch (e) { }
@@ -595,7 +1184,7 @@ pintarEncabezado(); pintarMetodo(); vista('tendencia');
   db.collection(`ciclos/${CID}/lineas`).onSnapshot(snap => {
     const nr = {}; snap.docs.forEach(d => { nr[d.id] = d.data(); }); remote = nr;
     if (!snap.metadata.fromCache) clearTimeout(t10);
-    if (!pendientes) estado(snap.size ? 'Guardado al día' : 'Listo para capturar', 'ok');
+    if (!pendientes) estado(VENCIDO ? 'Captura cerrada · solo lectura' : snap.size ? 'Guardado al día' : 'Listo para capturar', 'ok');
     sincronizarInputs(); refrescarResumen();
   }, () => { clearTimeout(t10); estado('No se pudo leer lo guardado', 'err'); });
   db.doc(`ciclos/${CID}`).onSnapshot(d => { envio = d.exists ? d.data() : null; pintarEnvio(); }, () => { });
