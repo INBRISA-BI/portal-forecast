@@ -85,13 +85,45 @@ function pillsMeses(cl) {      // etiquetas de meses de una clase: amarillo = fa
   return h;
 }
 
+/* 0.5.0 · inventario con procedencia: inv.pzDistribuidor (último corte del distribuidor) + inv.pzTransito (órdenes en tránsito que cuentan,
+   según la regla de datos.json) = inv.pzTotal. Sin esos campos todo es inventario del distribuidor, como antes. Funciones con nombre para usarlas al cargar. */
+function invPartes(p) {
+  const i = p && p.inv; if (!i) return null;
+  const tr = +i.pzTransito || 0;
+  const dist = i.pzDistribuidor != null ? (+i.pzDistribuidor || 0) : (i.pzTotal != null ? (+i.pzTotal || 0) - tr : (+i.pz || 0));
+  const tot = i.pzTotal != null ? (+i.pzTotal || 0) : dist + tr;
+  return { dist, tr, tot, fecha: i.fecha, ordenes: (p.transito && Array.isArray(p.transito.ordenes)) ? p.transito.ordenes : [] };
+}
+function invTot(p) { const x = invPartes(p); return x ? x.tot : 0; }
+function conTransito(p) { const x = invPartes(p); return !!x && x.tr > 0; }
+/* 0.5.0 · pedidos programados (productos[].pedidosProgramados; regla en pedidosProgramados.regla / reglasInventario.pedidosProgramados):
+   se muestran aparte y NO suman al inventario ni a los días mientras su estado no cuente como inventario */
+function progDe(p) { const x = p && p.pedidosProgramados; return x ? { pz: +x.pz || 0, cajas: +x.cajas || 0, ordenes: Array.isArray(x.ordenes) ? x.ordenes : [] } : null; }
+function diasTxt(n) { return fN(n) + (Math.round(n) === 1 ? ' día' : ' días'); }      // singular y plural
+const PROG_KAM = 'Pedidos programados: todavía no salieron; no se suman a tus días de inventario hasta que se embarquen.';      // frase para el KAM; la regla completa, solo BI
+function reglaProgramados() { const x = D.pedidosProgramados || {}, ri = D.reglasInventario || {}; return x.regla || ri.pedidosProgramados || ''; }
+function reglaTransito() { const t = D.transito || {}, e = D.exportacion || {}, ri = D.reglasInventario || {}; return ri.transito || t.regla || t.reglaTransito || e.reglaTransito || D.reglaTransito || ''; }
+/* una orden en tránsito con los nombres del contrato (T_ORDENES_TRANSITO de CONTRATO_EXPORTACION.md) o en camelCase */
+const normOrden = o => ({ orden: o.orden || o.ORDEN || o.numero || o.id || '', cod: String(o.cod || o.codigo || o['COD. PRODUCTO'] || o.codProducto || '').trim(), clase: o.clase || o.CLASE || '',
+  mes: String(o.mes || o.mesEmbarque || o.MES_EMBARQUE || '').slice(0, 7), eta: o.fechaLlegada || o.eta || o.ETA || o.fechaEta || '', cajas: +(o.cajas ?? o.CAJAS) || 0, piezas: +(o.piezas ?? o.pz ?? o.PIEZAS) || 0,
+  unidades: +o.unidades || 0, estado: o.estado || o.ESTADO || '', m3: +(o.m3 ?? o.M3) || 0, cuenta: o.cuentaInventario, motivo: o.motivo || '' });
+const ordPz = (o, p) => { const n = normOrden(o); return n.piezas || (n.unidades || n.cajas) * (((p.codigos.find(c => c.cod === n.cod) || p.princ || {}).pzPorU) || 1); };
+const ordEta = o => { const n = normOrden(o); return n.eta || n.mes || ''; };
+const fmtEta = v => { const t = String(v || ''); return !t ? '—' : t.length > 7 ? fechaCorta(t) : ml(t); };
+const ordId = o => normOrden(o).orden;
+function tablaOrdenes(p, prog) {
+  const os = prog ? (progDe(p) || {}).ordenes || [] : (invPartes(p) || {}).ordenes || []; if (!os.length) return '';
+  const tit = prog ? 'Pedidos programados (no suman al inventario)' : 'Órdenes en tránsito';
+  return `<div class="tw" role="region" tabindex="0" aria-label="${tit}"><table class="tbl"><caption style="padding:8px 10px">${tit}</caption><thead><tr><th class="l">Orden</th><th class="l">Código</th><th class="l">Llegada estimada (ETA)</th><th>Piezas</th><th class="l">Estado</th></tr></thead><tbody>${os.map(o => `<tr><td class="l">${esc(ordId(o) || '—')}</td><td class="l">${esc(normOrden(o).cod || p.principal)}</td><td class="l">${esc(fmtEta(ordEta(o)))}</td><td>${fN(ordPz(o, p))}</td><td class="l" style="white-space:normal">${esc(normOrden(o).estado || 'en tránsito')}${normOrden(o).motivo ? `<small class="muted" style="display:block">${esc(normOrden(o).motivo)}</small>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
 const LINES = {}, PID = {};
 P.forEach(p => {
   PID[p.id] = p;
   p.codigos.forEach(c => { c.id = p.clase + '__' + c.cod; LINES[c.id] = { p, c }; });
   p.cap = p.codigos.filter(c => c.captura);
   p.princ = p.codigos.find(c => c.cod === p.principal) || p.codigos[0];
-  if (p.inv && !(p.inv.pz > 0) && !p.inv.fecha) p.inv = null;      // QA B1: inventario en 0 sin fecha de corte = sin reporte de inventario (no es riesgo de quiebre)
+  if (p.inv && !(invTot(p) > 0) && !p.inv.fecha && !(+p.inv.pzTransito > 0)) p.inv = null;      // QA B1: inventario en 0 sin fecha de corte = sin reporte de inventario (no es riesgo de quiebre)
   p.txt = (p.nombre + ' ' + p.grupo + ' ' + p.cat + ' ' + p.codigos.map(c => c.cod + ' ' + c.desc).join(' ')).toLowerCase();
 });
 
@@ -170,7 +202,7 @@ const _MDOH = {};
 function mesesDoh(cl) { if (_MDOH[cl]) return _MDOH[cl]; const inc = INCOMP[cl] || []; let ms = MH.slice(-3).filter(m => !inc.includes(m)); if (ms.length < 2) ms = MH.slice(-6).filter(m => !inc.includes(m)); return (_MDOH[cl] = ms); }
 const ventaDoh = p => sum(p.real, mesesDoh(p.clase));
 const diasDoh = p => mesesDoh(p.clase).length * 30.4;
-const dias = p => { if (!p.inv) return null; const v = ventaDoh(p); return v > 0 ? Math.round(p.inv.pz / (v / diasDoh(p))) : null; };
+const dias = p => { if (!p.inv) return null; const v = ventaDoh(p); return v > 0 ? Math.round(invTot(p) / (v / diasDoh(p))) : null; };      // 0.5.0: incluye el tránsito que cuenta
 /* foto vieja: el último corte es anterior al mes de datos → se muestra "corte dd/mm/aaaa · dato viejo", sin marca de riesgo ni sobrestock */
 /* QA 0.4.0: un corte anterior al primer día del mes de datos (calendario.corte) ya es viejo; no es un umbral de días */
 const MES_DATOS = (CAL && CAL.corte) || D.corte;
@@ -223,7 +255,7 @@ const riesgo = cl => { const d = D.distribuidores[cl] || {}; if (d.umbralRiesgo)
 function estInv(d, cl) { if (d == null) return null; if (invViejo(cl)) return ['', viejoTxt(fechaInv(cl))]; if (d < riesgo(cl)) return ['bad', 'Riesgo de quiebre']; if (d > 180) return ['warn', 'Exceso']; if (d > 90) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
 const pill = (cls, t) => `<span class="pill ${cls || ''}">${esc(t)}</span>`;
 function pillTend(t) { if (t == null) return pill('', 'sin base'); return pill(t >= 0.05 ? 'good' : t <= -0.1 ? 'bad' : '', flecha(t) + fP(t)); }
-function pillDias(d, cl) { if (d == null) return pill('', 'sin dato'); const e = estInv(d, cl); return pill(e[0], fN(d) + ' días · ' + e[1].toLowerCase()); }
+function pillDias(d, cl) { if (d == null) return pill('', 'sin dato'); const e = estInv(d, cl); return pill(e[0], diasTxt(d) + ' · ' + e[1].toLowerCase()); }
 function pillDif(d) { if (d == null) return pill('', '—'); return pill(Math.abs(d) <= 0.1 ? 'good' : Math.abs(d) <= 0.3 ? '' : 'warn', flecha(d) + fP(d)); }
 
 /* ---------- alertas del producto y avisos de la captura ---------- */
@@ -259,7 +291,7 @@ function avisosCaptura(p) {
     const fuertes = sobre.filter(m => kamU(c, m) * fz > X3M * mh.pz), suaves = sobre.filter(m => !fuertes.includes(m));
     const peor = ms => ms.reduce((a, m) => kamU(c, m) * fz / alg(m) > kamU(c, a) * fz / alg(a) ? m : a, ms[0]);
     if (fuertes.length) { const m = peor(fuertes);
-      out.push(['bad', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo y más de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). En ${ml(m)} pusiste ${fN(kamU(c, m) * fz)} pz y el algoritmo dice ${fN(alg(m))}.${suaves.length ? ` También pasan de ${veces} veces el algoritmo, sin llegar a ese máximo: ${suaves.map(ml).join(', ')}.` : ''} Deja un comentario con el motivo`, `${c.cod}: ${fuertes.map(ml).join(', ')} más de ${veces}× el algoritmo y de ${vecesM}× su mejor mes`]); }
+      out.push(['bad', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo y más de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). En ${ml(m)} el forecast registrado es ${fN(kamU(c, m) * fz)} pz y el algoritmo indica ${fN(alg(m))}.${suaves.length ? ` También pasan de ${veces} veces el algoritmo, sin llegar a ese máximo: ${suaves.map(ml).join(', ')}.` : ''} Registre el motivo en el comentario`, `${c.cod}: ${fuertes.map(ml).join(', ')} más de ${veces}× el algoritmo y de ${vecesM}× su mejor mes`]); }
     else if (suaves.length) { const m = peor(suaves);        // la nota gris sale sola: si el código ya tiene aviso fuerte, sus otros meses van dentro de ese aviso
       out.push(['nota', `${c.cod}: en ${suaves.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo (${ml(m)}: ${fN(kamU(c, m) * fz)} pz contra ${fN(alg(m))}), pero no pasa de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). Es solo una nota`, `${c.cod}: ${suaves.map(ml).join(', ')} más de ${veces}× el algoritmo`]); }
     const tiene = MK.some(m => kamU(c, m) > 0);
@@ -286,11 +318,12 @@ function sesgoProducto(p) {
 /* ---------- totales de una selección (todo a precio de lista para poder sumar productos distintos) ---------- */
 function resumen(sel) {
   const L12 = MH.slice(-12);
-  const r = { alg: 0, kam: 0, pzk: 0, pza: 0, d3: 0, d3ly: 0, inv: 0, d3st: 0, vdst: 0, invPz: 0, ventaPz: 0, vdPz: 0, conInv: 0, kp: 0, rl: 0, si: 0, err: 0, curso: 0, avance: 0, conAvance: 0, sinPrecio: 0, L12 };
+  const r = { alg: 0, kam: 0, pzk: 0, pza: 0, d3: 0, d3ly: 0, inv: 0, d3st: 0, vdst: 0, invPz: 0, invDistPz: 0, invTrPz: 0, progPz: 0, progCajas: 0, progOrd: new Set(), ventaPz: 0, vdPz: 0, conInv: 0, kp: 0, rl: 0, si: 0, err: 0, curso: 0, avance: 0, conAvance: 0, sinPrecio: 0, L12 };
   sel.forEach(p => {
     r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); r.pzk += kamPz6(p); r.pza += algPz6(p);
     r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly);
-    if (p.inv) { r.inv += pv(p, p.inv.pz); r.d3st += pv(p, ventaDoh(p)); r.vdst += pv(p, ventaDoh(p)) / diasDoh(p); r.invPz += p.inv.pz; r.ventaPz += ventaDoh(p); r.vdPz += ventaDoh(p) / diasDoh(p); r.conInv++; }
+    { const pg = progDe(p); if (pg) { r.progPz += pg.pz; r.progCajas += pg.cajas; pg.ordenes.forEach(o => r.progOrd.add(normOrden(o).orden)); } }
+    if (p.inv) { const ip = invPartes(p); r.inv += pv(p, ip.tot); r.d3st += pv(p, ventaDoh(p)); r.vdst += pv(p, ventaDoh(p)) / diasDoh(p); r.invPz += ip.tot; r.invDistPz += ip.dist; r.invTrPz += ip.tr; r.ventaPz += ventaDoh(p); r.vdPz += ventaDoh(p) / diasDoh(p); r.conInv++; }
     L12.forEach(m => { const k = p.kamPasadoPz && p.kamPasadoPz[m]; if (k) { const re = p.real[m] || 0; r.kp += pv(p, k); r.rl += pv(p, re); r.si += pv(p, p.sellIn[m] || 0); r.err += pv(p, Math.abs(re - k)); } });
     r.curso += kamVal(p, MC);
     const av = p.avanceSellInPz && p.avanceSellInPz[MC]; if (av != null) { r.avance += pv(p, av); r.conAvance++; }
@@ -306,7 +339,7 @@ function resumen(sel) {
   if (pk) { r.pk = pk; r.sesgo = pkSes(pk); r.sesgoReal = pk.sesgoReal; r.sesgoSI = pk.sesgoSellIn; r.prec = pk.accReal == null ? null : Math.max(0, pk.accReal); r.L12 = [pk.desde, pk.hasta]; }
   const completa = sel.length && sel.length === P.filter(p => dist === 'TODOS' || p.clase === dist).length, dip = D.diasInventarioPz;
   const dipMala = dip && Object.values(dip.porClase || {}).some(c => !(c.invPz > 0) && !c.fecha);      // QA B1: una clase sin inventario no debe entrar al total
-  if (completa && dip) { const x = dist === 'TODOS' ? (dipMala ? null : dip.total) : (dip.porClase || {})[dist]; if (x && ok(x.dias) && (x.invPz > 0 || x.fecha)) { r.doh = x.dias; r.dip = x; } }
+  if (completa && dip) { const x = dist === 'TODOS' ? (dipMala ? null : dip.total) : (dip.porClase || {})[dist]; if (x && ok(x.dias) && (x.invPz > 0 || x.fecha) && (!(r.invTrPz > 0) || x.pzTransito != null || x.invTransitoPz != null || x.transitoPz != null)) { r.doh = x.dias; r.dip = x; } }      // con tránsito y sin ese dato en diasInventarioPz, calcula la página
   r.difK = r.alg > 0 ? r.kam / r.alg - 1 : null;
   return r;
 }
@@ -368,18 +401,18 @@ const PKP = (D.precisionKam || {}).principal || null;
 const BASE_SI = !!PKP && /sell ?in/i.test(PKP.base || PKP.sesgo || '');
 const pkMed = pk => pk ? pk[(PKP && PKP.medida) || 'accTrimSellIn'] : null;
 const pkSes = pk => pk ? pk[(PKP && PKP.sesgo) || 'sesgoReal'] : null;
-const BASE_TXT = BASE_SI ? 'lo que compró el distribuidor' : 'lo que se vendió';
+const BASE_TXT = BASE_SI ? 'las compras del distribuidor' : 'la venta real';
 /* acierto = 1 − Σ|sell in − forecast| ÷ Σ sell in: si el error pasa de lo comprado da 0 (piso), y sin compras no hay base. Nunca un 0 % a secas. */
 function aciertoEst(v, base) { if (!ok(v) || !(base > 0)) return 'sinbase'; return v <= 0.005 ? 'piso' : 'ok'; }
-function aciertoTxt(v, base, corto) { const e = aciertoEst(v, base); return e === 'sinbase' ? 'sin base' : e === 'piso' ? (corto ? 'error mayor que lo comprado' : 'sin acierto: el error pasó de lo que compró el distribuidor') : pctN(v); }
-function tendTxt(s) { if (!ok(s)) return 'sin datos para saber si vas arriba o abajo'; const r = Math.round(Math.abs(s) * 100); return r < 5 ? 'tu forecast va parejo con ' + BASE_TXT : `tiendes a pronosticar ${nf.format(r)} % ${s > 0 ? 'más' : 'menos'} de ${BASE_TXT}`; }
+function aciertoTxt(v, base, corto) { const e = aciertoEst(v, base); return e === 'sinbase' ? 'sin base' : e === 'piso' ? (corto ? 'error mayor que las compras' : 'sin acierto: el error superó las compras del distribuidor') : pctN(v); }
+function tendTxt(s) { if (!ok(s)) return 'sin datos suficientes para medir el sesgo'; const r = Math.round(Math.abs(s) * 100); return r < 5 ? 'forecast alineado con ' + BASE_TXT : `forecast ${nf.format(r)} % ${s > 0 ? 'por encima' : 'por debajo'} de ${BASE_TXT}`; }
 function frasePasado(pk) {
   const v = pkMed(pk), e = aciertoEst(v, pk && pk.sellInPz), t = tendTxt(pkSes(pk));
-  const a = e === 'ok' ? `Acertaste ${pctN(v)} del trimestre contra lo que compró el distribuidor` : e === 'piso' ? 'Sin acierto por trimestre: el error pasó de lo que compró el distribuidor' : '';
+  const a = e === 'ok' ? `Acierto trimestral de ${pctN(v)} contra las compras del distribuidor` : e === 'piso' ? 'Sin acierto trimestral: el error superó las compras del distribuidor' : '';
   return a ? a + '; ' + t : t.charAt(0).toUpperCase() + t.slice(1);
 }
 /* meses fuera de la medición, con su motivo (mesesExcluidosDetalle, 24/11). Datos viejos: solo la lista, que entonces era "reporte" */
-const ORIGEN_EXCL = { forecastKam: 'tu formulario venía en 0', reporte: 'sin reporte o incompleto' };
+const ORIGEN_EXCL = { forecastKam: 'formulario del KAM en 0', reporte: 'sin reporte o incompleto' };
 function exclusiones(pk) {
   const det = (pk && pk.mesesExcluidosDetalle) || [];
   if (!det.length) return (pk && pk.mesesExcluidos || []).length ? [{ origen: 'reporte', meses: pk.mesesExcluidos.slice().sort(), xs: [] }] : [];
@@ -430,23 +463,25 @@ const EXP = {
   k_doh() {
     const sel = selDist(), r = resumen(sel), st = sel.filter(p => p.inv);
     const cl = [...new Set(st.map(p => p.clase))];
-    return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : fN(r.doh) + ' días', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
+    return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : diasTxt(r.doh) + '', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
       que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor en estos datos.' : `Cuántos días le alcanza al distribuidor el inventario del último corte, al ritmo de venta de los últimos 3 meses con reporte completo (si el distribuidor no reportó o reportó incompleto, ese mes se salta; con menos de 2 meses completos se usan los últimos 6). ${st.length} productos con inventario. Si el corte es anterior a ${mll(MES_DATOS)}, se muestra como dato viejo y sin marca.`,
       formula: 'piezas en inventario del último corte ÷ (piezas vendidas en los meses completos ÷ (meses × 30,4 días))',
       filas: r.doh == null ? [] : (() => { const x = r.dip || { invPz: r.invPz, ventaPz: r.ventaPz, ventaDiariaPz: r.vdPz };      // 0.4.0: en piezas (diasInventarioPz), no a precio de lista
-        return [['Inventario', fN(x.invPz) + ' pz'], ['Venta de los meses completos de esos productos', fN(x.ventaPz) + ' pz'], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ')).join('<br>')], ['Venta diaria', fN1(x.ventaDiariaPz) + ' pz'], ['Días de inventario', fN(r.doh), 1], ['Valor del inventario a precio de lista', fC(r.inv)]]; })(),
+        const prog = r.progPz > 0 ? [['Pedidos programados (' + r.progOrd.size + ' ' + (r.progOrd.size === 1 ? 'orden' : 'órdenes') + '; no suman días)', fN(r.progPz) + ' pz · ' + fN(r.progCajas) + ' cajas']] : [];
+        const comp = r.invTrPz > 0 ? [['En el distribuidor (último corte)', fN(r.invDistPz) + ' pz'], ['En tránsito (órdenes que cuentan)', fN(r.invTrPz) + ' pz'], ['Inventario total', fN(r.invPz) + ' pz']] : [['Inventario', fN(x.invPz) + ' pz']];
+        return comp.concat([['Venta de los meses completos de esos productos', fN(x.ventaPz) + ' pz'], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ')).join('<br>')], ['Venta diaria', fN1(x.ventaDiariaPz) + ' pz'], ['Días de inventario', fN(r.doh), 1], ['Valor del inventario a precio de lista', fC(r.inv)]]).concat(prog); })(),
       bi: r.dip ? `<p>Días de la ${S.dist === 'TODOS' ? 'selección completa' : 'clase'} tomados de diasInventarioPz (${fN(r.dip.productos)} productos${r.dip.fecha ? ', corte ' + fechaCorta(r.dip.fecha) : ''}). ${esc((D.diasInventarioPz || {}).regla || '')}</p>` : '<p>Calculado en la página: Σ inventario pz ÷ Σ (venta pz de los meses completos ÷ días), sin precio de lista.</p>',
       fuentes: ['Reporte de inventario de cada distribuidor (inventario unificado), convertido a piezas con la misma regla de unidades que la venta', 'Cortes: ' + (cl.length ? cl.map(c => esc(c) + ' ' + fechaCorta(D.distribuidores[c].invFecha) + ' (' + D.distribuidores[c].invCortes + ' cortes)').join(' · ') : '—')],
-      nota: `Umbrales del reporte de distribuidores en Power BI: menos de ${KAMN === 'MONICA' ? '30 días (exportación)' : '15 días'} = riesgo de quiebre; más de 90 = sobrestock; más de 180 = exceso.` };
+      nota: `${r.invTrPz > 0 && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + '. ' : ''}${r.progPz > 0 ? PROG_KAM + BI(' Regla completa: ' + esc(reglaProgramados())) + ' ' : ''}Umbrales del reporte de distribuidores en Power BI: menos de ${KAMN === 'MONICA' ? '30 días (exportación)' : '15 días'} = riesgo de quiebre; más de 90 = sobrestock; más de 180 = exceso.` };
   },
   k_sesgo() {
     const sel = selDist(), r = resumen(sel), pk = r.pk;
     if (pk) {      // 0.4.0: el KAM ve la medida principal (acierto trimestral contra el sell in) con su sesgo al lado; métricas, fórmulas, trimestres y regla quedan para BI
       const tab = fs => '<table class="dx-tab"><tbody>' + fs.map(x => `<tr><td>${x[0]}</td><td>${x[1]}</td></tr>`).join('') + '</tbody></table>';
       const v = pkMed(pk), ex = exclTxt(pk);
-      return { t: 'Tu forecast pasado', v: aciertoTxt(v, pk.sellInPz), u: aciertoEst(v, pk.sellInPz) === 'ok' ? 'de acierto por trimestre contra lo que compró el distribuidor' : '',
+      return { t: 'Forecast anterior (KAM)', v: aciertoTxt(v, pk.sellInPz), u: aciertoEst(v, pk.sellInPz) === 'ok' ? 'acierto trimestral contra las compras del distribuidor' : '',
         que: `${ml(pk.desde)} – ${ml(pk.hasta)} en ${esc(distTxt())}. ${esc(frasePasado(pk))}.${ex ? ' ' + esc(ex.charAt(0).toUpperCase() + ex.slice(1)) + '.' : ''}`,
-        filas: [['Lo que pronosticaste', fN(pk.fcstPz) + ' pz'], ['Lo que compró el distribuidor (sell in)', fN(pk.sellInPz) + ' pz'], ['Lo que se vendió (venta real)', fN(pk.realPz) + ' pz'],
+        filas: [['Forecast registrado', fN(pk.fcstPz) + ' pz'], ['Compras del distribuidor (sell in)', fN(pk.sellInPz) + ' pz'], ['Venta real (demanda)', fN(pk.realPz) + ' pz'],
           ['Acierto por trimestre', aciertoTxt(v, pk.sellInPz, true), 1], ['Sesgo contra ' + BASE_TXT, ok(pkSes(pk)) ? flecha(pkSes(pk)) + fP(pkSes(pk)) : '—']],
         fuentes: [FUENTE_BHIST, FUENTE_REAL, FUENTE_SI],
         bi: `<p>Ventana ${ml(pk.desde)} – ${ml(pk.hasta)}: ${pk.meses} meses${pk.mesesConForecast != null ? ', ' + pk.mesesConForecast + ' con forecast' : ''}. Medida principal: ${esc((PKP && PKP.texto) || 'acierto trimestral (datos sin precisionKam.principal)')}.</p>`
@@ -456,15 +491,15 @@ const EXP = {
             ['Sesgo contra el sell in', flecha(pk.sesgoSellIn) + fP(pk.sesgoSellIn)], ['WAPE contra el sell in', ok(pk.wapeSellIn) ? nf.format(pk.wapeSellIn * 100) + ' %' : '—'], ['Precisión contra el sell in', ok(pk.accSellIn) ? nf.format(pk.accSellIn * 100) + ' %' : '—'], ['Acierto trimestral contra el sell in (valor crudo)', ok(pk.accTrimSellIn) ? nf2.format(pk.accTrimSellIn) : '—']])
           + tablaTrim(pk)
           + ((D.precisionKam || {}).regla ? `<p>${esc(D.precisionKam.regla)}</p>` : ''),
-        tec: 'datos.json → precisionKam' + (S.dist === 'TODOS' ? '.total' : '.porClase[' + esc(S.dist) + ']') + ' (en piezas) · principal · trimestres · mesesExcluidosDetalle', nota: 'Sirve para calibrar: si sueles ir arriba, revisa primero los productos grandes.' };
+        tec: 'datos.json → precisionKam' + (S.dist === 'TODOS' ? '.total' : '.porClase[' + esc(S.dist) + ']') + ' (en piezas) · principal · trimestres · mesesExcluidosDetalle', nota: 'Referencia de calibración: si el sesgo es positivo de forma recurrente, conviene revisar primero los productos de mayor volumen.' };
     }
-    return { t: 'Tu forecast pasado contra la venta', v: fP(r.sesgo), u: 'sesgo, últimos 12 meses cerrados',
-      que: `Compara lo que pusiste en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, de ${rango(r.L12)}. Positivo = pronosticaste de más. Solo cuenta meses y productos donde diste forecast.`,
+    return { t: 'Forecast anterior (KAM) contra la venta', v: fP(r.sesgo), u: 'sesgo, últimos 12 meses cerrados',
+      que: `Compara el forecast registrado en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, de ${rango(r.L12)}. Positivo = forecast por encima de la venta. Solo cuenta meses y productos donde diste forecast.`,
       formula: 'sesgo = Σ forecast ÷ Σ venta real − 1 · precisión = 1 − Σ |venta real − forecast| ÷ Σ forecast (como FCST ACC de Power BI)',
       filas: [['Tu forecast de esos meses', fC(r.kp)], ['Venta real (demanda) de esos meses', fC(r.rl)], ['Sesgo contra la venta', flecha(r.sesgo) + fP(r.sesgo), 1], ['Precisión contra la venta', r.prec == null ? '—' : nf.format(r.prec * 100) + ' %'], ['Referencia: sell in (facturado) de esos meses', fC(r.si)], ['Sesgo contra el sell in', flecha(r.sesgoSI) + fP(r.sesgoSI)]],
       fuentes: [FUENTE_BHIST, FUENTE_REAL, FUENTE_SI],
       tec: 'productos[].kamPasadoPz, .real y .sellIn (piezas) × .precioPz, producto por producto y mes por mes',
-      nota: 'Sirve para calibrar: si sueles ir arriba, revisa primero los productos grandes. El error se suma producto por producto, así que un producto alto no compensa a otro bajo.' };
+      nota: 'Referencia de calibración: si el sesgo es positivo de forma recurrente, conviene revisar primero los productos de mayor volumen. El error se suma producto por producto: un producto por encima no compensa a otro por debajo.' };
   },
   k_curso() {
     const sel = selDist(), r = resumen(sel);
@@ -489,12 +524,14 @@ const EXP = {
     const p = PID[ds.p], f = fac(p), i = p.inv;
     if (!i) return { t: 'Inventario · ' + p.nombre, v: 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'El distribuidor no ha enviado inventario de este producto.' };
     const vd = dias(p) == null ? 0 : ventaDoh(p) / diasDoh(p), e = estInv(dias(p), p.clase);
-    return { t: 'Inventario y días · ' + p.nombre, v: fN1(i.pz / f) + ' ' + uNom(p), u: 'al ' + fechaCorta(i.fecha),
-      que: `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
+    const ip = invPartes(p);
+    return { t: 'Inventario y días · ' + p.nombre, v: fN1(ip.tot / f) + ' ' + uNom(p), u: ip.tr ? 'distribuidor al ' + fechaCorta(i.fecha) + ' + en tránsito' : 'al ' + fechaCorta(i.fecha),
+      que: ip.tr ? `Inventario de ${esc(p.clase)} en su último corte más lo que viene en camino (órdenes en tránsito que cuentan), y cuántos días le alcanza.` : `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
       formula: 'días = inventario ÷ (venta de los meses completos ÷ (meses × 30,4 días))',
-      filas: [['Inventario (piezas)', fN(i.pz) + ' pz'], ['Venta de ' + mesesDoh(p.clase).map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? 'sin venta reciente' : fN(dias(p)), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]],
+      filas: (ip.tr ? [['En el distribuidor (corte ' + fechaCorta(i.fecha) + ')', fN(ip.dist) + ' pz'], ['En tránsito (' + ip.ordenes.length + ' ' + (ip.ordenes.length === 1 ? 'orden' : 'órdenes') + ')', fN(ip.tr) + ' pz'], ['Inventario total', fN(ip.tot) + ' pz', 1]] : [['Inventario (piezas)', fN(ip.tot) + ' pz']]).concat([['Venta de ' + mesesDoh(p.clase).map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? 'sin venta reciente' : fN(dias(p)), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]]).concat(progDe(p) ? [['Pedidos programados (no suman días)', fN(progDe(p).pz) + ' pz · ' + fN(progDe(p).cajas) + ' cajas']] : []),
+      bi: tablaOrdenes(p) + (reglaTransito() ? `<p>Regla del tránsito: ${esc(reglaTransito())}</p>` : '') + (progDe(p) && reglaProgramados() ? `<p>Regla de pedidos programados: ${esc(reglaProgramados())}</p>` : ''),
       fuentes: [`Reporte de inventario de ${esc(p.clase)} (${(D.distribuidores[p.clase] || {}).invCortes || 0} cortes; último ${fechaCorta(i.fecha)}), convertido a piezas con la regla de unidades del cluster`],
-      tec: 'productos[].inv.pz, .inv.doh, .inv.hist', nota: `Estado: ${e ? e[1] : 'sin dato'}. Umbrales: menos de ${riesgo(p.clase)} días riesgo de quiebre, más de 90 sobrestock, más de 180 exceso.` };
+      tec: 'productos[].inv.pz / pzDistribuidor / pzTransito / pzTotal, .inv.hist, productos[].transito', nota: `${ip.tr && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + ' ' : ''}Estado: ${e ? e[1] : 'sin dato'}. Umbrales: menos de ${riesgo(p.clase)} días riesgo de quiebre, más de 90 sobrestock, más de 180 exceso.` };
   },
   p_alg(ds) {
     const p = PID[ds.p], f = fac(p);
@@ -541,7 +578,7 @@ const EXP = {
     if (c.calc && c.calc.fc && c.calc.fc[m] != null && !pc) filas.push(['Algoritmo de este código', fN1(c.calc.fc[m] / u) + ' ' + un]);
     filas.push(['Venta real ' + ml(aa) + ' (todo el producto)', fN1((p.real[aa] || 0) / u) + ' ' + un]);
     const s = siU(p, c, aa); filas.push(['Sell in ' + ml(aa), s == null ? '—' : fN1(s) + ' ' + un]);
-    if (c.kamPasado && c.kamPasado[aa] != null) filas.push(['Lo que dijiste para ' + ml(aa), fN(c.kamPasado[aa]) + ' ' + un]);
+    if (c.kamPasado && c.kamPasado[aa] != null) filas.push(['Forecast registrado para ' + ml(aa), fN(c.kamPasado[aa]) + ' ' + un]);
     const pr = precioU(p, c), q = e === 'abierto' ? kamU(c, m) : (vig(c, m) || 0);
     filas.push(['Precio de lista', fC2(pr)], ['Valor', fC(q * (pr || 0))]);
     return { t: c.cod + ' · ' + mll(m), v: fN(q) + ' ' + plural(presDe(c)), u: cNom(c) + ' = ' + fN(q * u) + ' pz',
@@ -664,7 +701,7 @@ function dibujar(el) {
     if (!hay) { const r = document.createElement('div'); r.className = 'r'; r.textContent = 'Sin datos'; tip.appendChild(r); }
     if (o.estados && m > D.corte) { const e = document.createElement('div'); e.className = 'st'; e.textContent = EST[estadoMes(m)]; tip.appendChild(e); }
     if ((o.incompletos || []).includes(m)) { const e = document.createElement('div'); e.className = 'st'; e.textContent = 'Mes incompleto: el cliente no reportó el mes completo; tómalo con cuidado'; tip.appendChild(e); }
-    if ((o.exclKam || []).includes(m)) { const e = document.createElement('div'); e.className = 'st'; e.textContent = 'Tu forecast de este mes no cuenta en “tu forecast pasado”: el formulario venía en 0'; tip.appendChild(e); }
+    if ((o.exclKam || []).includes(m)) { const e = document.createElement('div'); e.className = 'st'; e.textContent = 'El forecast de este mes se excluye de la medición del forecast anterior: el formulario venía en 0'; tip.appendChild(e); }
     tip.hidden = false;
     const rw = svg.getBoundingClientRect().width || W, px = x(i) * rw / W, tw = tip.offsetWidth || 200;
     tip.style.left = Math.max(0, px + 14 + tw > rw ? px - tw - 14 : px + 14) + 'px'; tip.style.top = '4px';
@@ -685,7 +722,7 @@ function leyenda(series, conBandas) {
 function tablaSeries(o) {
   const ms = o.meses.filter(m => o.series.some(s => ok(s.data[m]) && s.data[m] !== 0));
   return `<div class="tw" role="region" tabindex="0" aria-label="Tabla del gráfico" style="max-height:340px;margin-top:10px"><table class="tbl"><thead><tr><th class="l">Mes</th>${o.series.map(s => `<th>${esc(s.nombre)}</th>`).join('')}<th class="l">Estado</th></tr></thead><tbody>` +
-    ms.map(m => `<tr><td class="l">${ml(m)}${(o.incompletos || []).includes(m) ? ' ▲ incompleto' : ''}${(o.exclKam || []).includes(m) ? ' · tu forecast no cuenta' : ''}</td>${o.series.map(s => `<td>${ok(s.data[m]) ? esc(o.tip(s.data[m])) : '—'}</td>`).join('')}<td class="l">${EST_C[estadoMes(m)]}</td></tr>`).join('') + '</tbody></table></div>';
+    ms.map(m => `<tr><td class="l">${ml(m)}${(o.incompletos || []).includes(m) ? ' ▲ incompleto' : ''}${(o.exclKam || []).includes(m) ? ' · forecast excluido de la medición' : ''}</td>${o.series.map(s => `<td>${ok(s.data[m]) ? esc(o.tip(s.data[m])) : '—'}</td>`).join('')}<td class="l">${EST_C[estadoMes(m)]}</td></tr>`).join('') + '</tbody></table></div>';
 }
 /* series estándar: selección en colones, o un producto en su unidad */
 function seriesDe(sel, p) {
@@ -697,9 +734,9 @@ function seriesDe(sel, p) {
   if (conSI) s.push({ nombre: 'Sell in (facturado por Brinova)', tipo: 'col', color: COL.si, data: agg((pp, m) => conv(pp.sellIn[m], pp), MH) });
   s.push({ nombre: 'Venta real (demanda)', tipo: 'line', color: COL.real, data: agg((pp, m) => conv(pp.real[m], pp), MH) });
   const kp = agg((pp, m) => conv(pp.kamPasadoPz && pp.kamPasadoPz[m], pp), pas); Object.keys(kp).forEach(k => { if (!kp[k]) delete kp[k]; });
-  s.push({ nombre: 'Lo que dijiste para cada mes', tipo: 'ring', color: COL.kam, data: kp });
+  s.push({ nombre: 'Forecast registrado (ciclos anteriores)', tipo: 'ring', color: COL.kam, data: kp });
   s.push({ nombre: 'Algoritmo', tipo: 'dash', color: COL.alg, data: agg((pp, m) => conv(pp.alg[m], pp), MF) });
-  s.push({ nombre: 'Tu forecast (vigente + cambios)', tipo: 'lm', color: COL.kam, data: agg((pp, m) => p ? kamPz(pp, m) / f : kamVal(pp, m), kamMs) });
+  s.push({ nombre: 'Forecast KAM vigente (con ajustes)', tipo: 'lm', color: COL.kam, data: agg((pp, m) => p ? kamPz(pp, m) / f : kamVal(pp, m), kamMs) });
   return s;
 }
 const mesesGraf = () => MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= S.desde);
@@ -728,6 +765,7 @@ function pintarEncabezado() {
   $('#chips2').innerHTML = ch2.map(([k, t]) => `<button type="button" class="chip" data-chip2="${k}" aria-pressed="${S.chip2 === k}">${t}</button>`).join('');
   $('#f-capv').innerHTML = [['abiertos', 'Meses de captura'], ['curso', '+ mes en curso'], ['todo', 'Todo el año']].map(([k, t]) => `<button type="button" data-capv="${k}" aria-pressed="${S.capVista === k}">${t}</button>`).join('');
   document.querySelectorAll('#f-unidad button').forEach(b => b.setAttribute('aria-pressed', b.dataset.u === S.unidad));
+  const t3 = $('#tab-c3'); if (t3) t3.hidden = !conExportacion();      // 0.5.0: vista 3D solo para exportación
   const bk = $('#b-comokam'); if (bk) { const on = document.body.classList.contains('como-kam'); bk.setAttribute('aria-pressed', on); }
 }
 const enDist = p => S.dist === 'TODOS' || p.clase === S.dist;
@@ -780,12 +818,14 @@ function pintarKpis() {
     <span class="refs"><span>Año anterior</span><span>${fC(r.d3ly)}</span></span></div>
   <div class="kpi"><span class="lbl">Inventario en el distribuidor</span>
     ${sinInv ? `<span class="big">No aplica</span><span class="sub">${porQue}</span>` :
-      `<span class="big">${r.doh == null ? '—' : nb('k_doh', fN(r.doh) + ' días')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
+      `<span class="big">${r.doh == null ? '—' : nb('k_doh', diasTxt(r.doh) + '')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
+      ${r.invTrPz > 0 ? `<span class="refs"><span>En el distribuidor</span><span>${fN(r.invDistPz)} pz</span><span>En tránsito</span><span>${fN(r.invTrPz)} pz</span><span>Total</span><span>${fN(r.invPz)} pz</span></span>` : ''}
+      ${r.progPz > 0 ? `<span class="sub">Pedidos programados: ${fN(r.progCajas)} cajas · ${fN(r.progPz)} pz (no suman días)</span>` : ''}
       <span class="refs"><span>Valor</span><span>${fC(r.inv)}</span><span>Corte</span><span>${fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') : '—'}</span></span>${viejas.length && S.dist === 'TODOS' ? `<span class="sub warn">Incluye ${viejas.length === 1 ? 'un corte viejo' : 'cortes viejos'}: ${esc(viejas.map(c => c + ' ' + fechaCorta(fechaInv(c))).join(', '))}</span>` : ''}`}</div>
-  <div class="kpi"><span class="lbl">Tu forecast pasado · ${esc(rango(r.L12))}</span>
+  <div class="kpi"><span class="lbl">Forecast anterior (KAM) · ${esc(rango(r.L12))}</span>
     ${r.pk ? (() => { const v = pkMed(r.pk), e = aciertoEst(v, r.pk.sellInPz), sg = pkSes(r.pk);
         return `<span class="par"><span class="big">${nb('k_sesgo', e === 'ok' ? pctN(v) : e === 'piso' ? 'Sin acierto' : 'Sin base')}</span>${ok(sg) ? `<span class="lado ${Math.abs(sg) > 0.15 ? 'warn' : 'muted'}">${flecha(sg)}${fP(sg)}<small>sesgo</small></span>` : ''}</span>
-        <span class="sub">${e === 'ok' ? 'de acierto por trimestre contra lo que compró el distribuidor' : e === 'piso' ? 'el error pasó de lo que compró el distribuidor' : 'no hay compras para comparar'}</span>`; })()
+        <span class="sub">${e === 'ok' ? 'acierto trimestral contra las compras del distribuidor' : e === 'piso' ? 'el error superó las compras del distribuidor' : 'sin compras para comparar'}</span>`; })()
       : `<span class="big">${r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo))}</span>`}
     <span class="vr ${r.sesgo != null && Math.abs(r.sesgo) > 0.15 ? 'warn' : 'muted'}">${r.sesgo == null ? 'Sin forecast en los últimos 12 meses' : esc(tendTxt(r.sesgo).replace(/^./, c => c.toUpperCase()))}</span>
     ${r.pk && exclTxt(r.pk) ? `<span class="sub">${esc(exclTxt(r.pk).replace(/^./, c => c.toUpperCase()))}</span>` : ''}
@@ -811,11 +851,11 @@ function pintarDistribuidores() {
     const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pkSes(pk) : r2.sesgo;
     return `<tr><td class="l" data-l="Distribuidor"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
       <td class="l" data-l="Fuente de la demanda" style="white-space:normal">${pill('src', fuenteTxt(cl))}${pillsMeses(cl)}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
-      <td data-l="Productos">${s2.length}</td><td data-l="Días de inventario">${r2.doh == null ? '—' : fN(r2.doh) + ' días' + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
-      <td data-l="Tu forecast pasado" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`;
+      <td data-l="Productos">${s2.length}</td><td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block">+ ${fN(r2.progCajas)} cajas programadas (no suman)</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
+      <td data-l="Sesgo del forecast anterior" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`;
   }).join('');
   /* 0.4.0: encabezados en dos líneas y celdas que se parten, para que la tabla quepa a 1366-1400 px sin cortar la última columna */
-  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%"><col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l">Fuente de la demanda</th><th>Productos</th><th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th title="Sesgo: positivo = pronosticaste de más que lo que compró el distribuidor">Tu forecast pasado: de más o de menos</th></tr></thead><tbody>${filas}</tbody></table></div>
+  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%"><col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l">Fuente de la demanda</th><th>Productos</th><th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th></tr></thead><tbody>${filas}</tbody></table></div>
     <p class="small muted" style="margin-top:8px"><b>Sell through</b>: venta del distribuidor a sus clientes · <b>Sell out</b>: venta de las tiendas al consumidor · <b>Sell in directo</b>: lo que Brinova factura${BI('. El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran')}.</p>`;
 }
 
@@ -867,7 +907,7 @@ function catFuenteTxt() { const c = D.categorias; if (!c || Array.isArray(c)) re
 /* totales de una categoría, en colones a precio de lista (no se pueden sumar cajas de tamaños distintos) */
 function totCat(ps) {
   const r = { d3: 0, d3ly: 0, alg: 0, kam: 0, inv: 0 };
-  ps.forEach(p => { r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly); r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); if (p.inv) r.inv += pv(p, p.inv.pz); });
+  ps.forEach(p => { r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly); r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); if (p.inv) r.inv += pv(p, invTot(p)); });
   r.t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null; r.dif = r.alg > 0 ? r.kam / r.alg - 1 : null;
   return r;
 }
@@ -879,7 +919,7 @@ function itemLista(p) {
         ${a.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}</span>` : ''}</span>
       <span data-l="12 meses + algoritmo">${spark(p)}</span>
       <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
-      <span class="r v" data-l="Inventario">${p.inv ? fN1(p.inv.pz / f) + `<small>${e ? pill(e[0], fN(dias(p)) + ' días') + (invViejo(p.clase) ? `<small class="warn">${esc(viejoTxt(fechaInv(p.clase)))}</small>` : '') : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
+      <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + (conTransito(p) ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${e ? pill(e[0], diasTxt(dias(p)) + '') + (invViejo(p.clase) ? `<small class="warn">${esc(viejoTxt(fechaInv(p.clase)))}</small>` : '') : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
       <span class="r v" data-l="Algoritmo">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l="Precio lista">${pr != null ? fC2(pr) : pill('bad', 'sin precio')}<small>por ${esc(esEmpaque(p) || p.uPz > 1 ? String(presDe(p.princ) || 'unidad').toLowerCase() : 'pieza')}</small></span>
@@ -906,7 +946,7 @@ function celdaCap(p, c, m) {
   if (e === 'curso') { const av = c.avanceU != null ? c.avanceU : (pc && p.avanceSellInPz && p.avanceSellInPz[m] != null ? p.avanceSellInPz[m] / u : null);
     return `<td class="st-curso"><span class="lock">${ICO.lock}<b>${fN(vig(c, m))}</b></span><span class="hint">${OFICIAL_CURSO ? 'oficial' : 'vigente'}${av != null ? '<br>facturado al ' + esc(fechaCorta(D.avanceHasta).slice(0, 5)) + ': ' + fN1(av) : ''}</span></td>`; }
   if (e === 'real' || e === 'pend') { const kp = c.kamPasado && c.kamPasado[m], s = siU(p, c, m);
-    return `<td class="st-real">${pc ? 'real ' + fN1((p.real[m] || 0) / u) : '—'}<span class="hint">${kp != null ? 'dijiste ' + fN(kp) : ''}${s != null ? (kp != null ? ' · ' : '') + 'SI ' + fN1(s) : ''}</span></td>`; }
+    return `<td class="st-real">${pc ? 'real ' + fN1((p.real[m] || 0) / u) : '—'}<span class="hint">${kp != null ? 'reg. ' + fN(kp) : ''}${s != null ? (kp != null ? ' · ' : '') + 'SI ' + fN1(s) : ''}</span></td>`; }
   return `<td class="st-ref">${pc ? 'alg ' + fN1((p.alg[m] || 0) / u) : '—'}</td>`;
 }
 function grupoCap(p, ncols) {
@@ -955,7 +995,7 @@ function pintarResumenCap() {
   const sel = P.filter(enDist), r = resumen(sel);
   const nEd = sel.reduce((a, p) => a + p.codigos.filter(c => MK.some(m => editado(c, m))).length, 0);
   $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b>, en la unidad de tu formulario. Viene lleno con tu formulario vigente: cambia solo lo que quieras. Se guarda solo.</p>
-    <p class="small muted">${ICO.lock} ${esc(ml(MC))} en curso${CAP_HASTA ? ' · la captura cierra el ' + esc(fechaCorta(CAP_HASTA)) : ''} · <b>alg</b> algoritmo · <b>ant</b> tu forecast anterior · <b>año pas.</b> venta real del mismo mes · en meses cerrados: <b>real</b>, <b>dijiste</b>, <b>SI</b> (sell in)</p>
+    <p class="small muted">${ICO.lock} ${esc(ml(MC))} en curso${CAP_HASTA ? ' · la captura cierra el ' + esc(fechaCorta(CAP_HASTA)) : ''} · <b>alg</b> algoritmo · <b>ant</b> forecast anterior · <b>año pas.</b> venta real del mismo mes · en meses cerrados: <b>real</b> venta real, <b>reg.</b> forecast registrado, <b>SI</b> sell in</p>
     <p class="small muted solo-movil">En el celular es más cómodo capturar desde el detalle de cada producto: toca su nombre en la tabla.</p>
     ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
   $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Algoritmo: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
@@ -1009,20 +1049,348 @@ function pintarMetodo() {
     ${c ? `<p>Ejemplo, <b>${esc(ej.nombre)}</b> en ${esc(ej.clase)} (${esc(un)}): (${fN1(c.l3 / f)} + ${fN1(c.l6 / f)} + ${fN1(c.l12 / f)}) ÷ 3 = ${fN1(base / f)}; × ${nf2.format((c.idx && c.idx[m0]) || 1)} en ${ml(m0)} = <b>${fN1(((c.fc && c.fc[m0]) || 0) / f)}</b>.</p>` : ''}</section>
   <section class="panel prosa"><h3>3. Qué tan bien funciona</h3>
     <p>Se probó pronosticando mayo a octubre de 2026 con datos solo hasta abril, con todos los KAM. Error típico: <b>${esc(D.bt.pc)} %</b> por producto y cliente, <b>${esc(D.bt.cliente)} %</b> por cliente y <b>${esc(D.bt.kam)} %</b> por KAM; en total pronosticó ${esc(D.bt.sesgo)} % de más. El modelo que se usaba antes fallaba ${esc(D.bt.antes)} % por producto.</p>
-    ${pk ? `<p><b>Tu forecast pasado</b> (${ml(pk.desde)} – ${ml(pk.hasta)}): ${esc(frasePasado(pk))}.${exclTxt(pk) ? ' ' + esc(exclTxt(pk).replace(/^./, c => c.toUpperCase())) + '.' : ''}${BI(' Contra la venta real: sesgo ' + fP(pk.sesgoReal) + ', precisión ' + (ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—') + '. ' + esc(pk.regla || ''))}</p>` : ''}
-    <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Tu forecast pasado</b> te dice si sueles ir arriba o abajo.</p></section>
+    ${pk ? `<p><b>Forecast anterior (KAM)</b> (${ml(pk.desde)} – ${ml(pk.hasta)}): ${esc(frasePasado(pk))}.${exclTxt(pk) ? ' ' + esc(exclTxt(pk).replace(/^./, c => c.toUpperCase())) + '.' : ''}${BI(' Contra la venta real: sesgo ' + fP(pk.sesgoReal) + ', precisión ' + (ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—') + '. ' + esc(pk.regla || ''))}</p>` : ''}
+    <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Forecast anterior (KAM)</b> indica si el forecast tiende a quedar por encima o por debajo de la demanda.</p></section>
   <section class="panel prosa"><h3>4. Qué meses capturas</h3>
     <p>Estamos en el ciclo de <b>${mll(D.ciclo)}</b>. ${esc(mll(MC).replace(/^./, x => x.toUpperCase()))} ya está corriendo: su forecast queda con candado (${OFICIAL_CURSO ? 'el oficial' : 'el de tu formulario vigente'}). Se capturan los ${MK.length} meses siguientes: <b>${rango(MK)}</b>${CAP_HASTA ? ', hasta el ' + fechaCorta(CAP_HASTA) : ''}. Los meses después de la captura muestran el algoritmo como referencia; en “Capturar forecast” → “Todo el año” se ve todo lo cargado.</p>
     <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del algoritmo (más de 50 %), deja un comentario con el motivo.</p>
-    <p><b>Avisos de la captura</b>, por código y mes: el aviso <b>rojo</b> sale solo cuando tu número pasa de ${nf.format(X3)} veces el algoritmo <b>y además</b> de ${nf.format(X3M)} veces el mejor mes de venta que ha tenido ese código; ahí conviene dejar el motivo. Si solo pasa de ${nf.format(X3)} veces el algoritmo, verás una <b>nota gris</b>, sin alarma: es para que lo tengas presente. El aviso amarillo es para un código que lleva de ${SV.min} a ${SV.max} meses sin vender.</p></section>
+    <p><b>Avisos de la captura</b>, por código y mes: el aviso <b>rojo</b> aparece solo cuando el forecast supera ${nf.format(X3)} veces el algoritmo <b>y además</b> de ${nf.format(X3M)} veces el mejor mes de venta que ha tenido ese código; ahí conviene dejar el motivo. Si solo pasa de ${nf.format(X3)} veces el algoritmo, verás una <b>nota gris</b>, sin alarma: es para que lo tengas presente. El aviso amarillo es para un código que lleva de ${SV.min} a ${SV.max} meses sin vender.</p></section>
   <section class="panel prosa"><h3>5. Unidades</h3>
     <p>Todo se suma en <b>piezas</b>, la unidad estándar del motor (1 alambrina, 1 esponja). Cada código tiene sus <b>piezas por unidad de venta</b>${BI(' (T_SKU · UNIDAD DE EMPAQUE)')}: una caja de 120 pz son 120 piezas.</p>
     <p>Un producto puede tener varios códigos (unidad, caja, pack). Brinova a veces factura uno y el distribuidor reporta otro, así que se juntan por producto. Con <b>Unidad del formulario</b> ves cada producto en la presentación de tu formulario; con <b>Piezas (unidad estándar)</b>, todo en piezas.</p></section>
   <section class="panel prosa"><h3>6. Inventario y lo que todavía no considera</h3>
-    <p><b>Días de inventario</b> = inventario del distribuidor ÷ su venta diaria de los últimos 3 meses. Menos de ${ries} días: riesgo de quiebre${ries === 30 ? ' (exportación)' : ''}. Más de 90: sobrestock. Más de 180: exceso. Son los mismos umbrales del reporte de distribuidores en Power BI.</p>
-    <p>Todavía no considera promociones y lanzamientos (los pones tú), órdenes de compra en tránsito, ni la historia completa de inventario de los distribuidores que no lo mandan cada mes.</p>
+    <p><b>Días de inventario</b> = (inventario del distribuidor${P.some(conTransito) ? ' + inventario en tránsito que cuenta' : ''}) ÷ su venta diaria de los últimos 3 meses.${P.some(conTransito) && reglaTransito() ? ' Tránsito que cuenta: ' + esc(reglaTransito()) + '.' : ''} Menos de ${ries} días: riesgo de quiebre${ries === 30 ? ' (exportación)' : ''}. Más de 90: sobrestock. Más de 180: exceso. Son los mismos umbrales del reporte de distribuidores en Power BI.</p>
+    <p>Todavía no considera promociones y lanzamientos (los registra el KAM)${P.some(conTransito) ? '' : ', órdenes de compra en tránsito'} ni la historia completa de inventario de los distribuidores que no lo mandan cada mes.</p>
     ${D.formFuera && D.formFuera.length ? `<p>Tu formulario también tiene ${D.formFuera.map(esc).join(', ')}, que todavía no tiene fuente de venta para el algoritmo; no aparece aquí.</p>` : ''}</section>
   </div>`;
+}
+
+/* ======================================================================================================
+   0.5.0 · Contenedores 3D (exportación)
+   Escena three.js (import map en la plantilla → jsdelivr three@0.160.0), medidas reales en metros, una InstancedMesh para todas las cajas.
+   Datos: D.exportacion (contenedores, empaques, órdenes) cuando el generador los trae; si no, contenedores ISO y empaques de ejemplo,
+   marcados en pantalla como "ejemplo". Carga por paredes: desde el fondo hacia la puerta, piso por piso, sin pasar la altura útil.
+   ====================================================================================================== */
+const EXPO = D.exportacion || null;
+const C3 = { tipo: null, fuente: 'kam', desde: null, hasta: null, clase: null, prod: '', pres: '', orden: '', color: 'cat', idx: 0, plan: null, escena: null, tres: null };
+const CONT_ISO = [      // respaldo sin exportacion.contenedores: medidas interiores ISO 668 típicas (mm) y carga útil típica (kg), marcadas "Ejemplo"
+  { id: "20' estándar", nombre: "20' estándar", largo: 5898, ancho: 2352, alto: 2393, puertaAncho: 2340, puertaAlto: 2280, pesoMax: 28200 },
+  { id: "40' estándar", nombre: "40' estándar", largo: 12032, ancho: 2352, alto: 2393, puertaAncho: 2340, puertaAlto: 2280, pesoMax: 26700 },
+  { id: "40' High Cube", nombre: "40' High Cube", largo: 12032, ancho: 2352, alto: 2698, puertaAncho: 2340, puertaAlto: 2585, pesoMax: 26500 },
+];
+const mm = v => { const n = +v; return isFinite(n) && n > 0 ? (n < 50 ? n * 1000 : n) : null; };      // acepta metros o milímetros
+function contenedores() {
+  const xs = EXPO && Array.isArray(EXPO.contenedores) ? EXPO.contenedores : null;
+  if (!xs || !xs.length) return { lista: CONT_ISO, ejemplo: true };
+  const lista = xs.map((x, i) => ({ id: String(x.tipo || x.TIPO || x.id || x.codigo || 'C' + i), nombre: String(x.tipo || x.TIPO || x.nombre || x.id || 'Contenedor ' + (i + 1)),
+    largo: mm(x.largoMm ?? x.largoM ?? x.largoIntM ?? x.LARGO_INT_M ?? x.largo), ancho: mm(x.anchoMm ?? x.anchoM ?? x.anchoIntM ?? x.ANCHO_INT_M ?? x.ancho), alto: mm(x.altoMm ?? x.altoM ?? x.altoIntM ?? x.ALTO_INT_M ?? x.alto),
+    puertaAncho: mm(x.puertaAnchoMm ?? x.puertaAnchoM ?? x.PUERTA_ANCHO_M ?? x.puertaAncho), puertaAlto: mm(x.puertaAltoMm ?? x.puertaAltoM ?? x.PUERTA_ALTO_M ?? x.puertaAlto),
+    pesoMax: +(x.pesoMaxKg ?? x.pesoMax ?? x.cargaMaxKg ?? x.CARGA_MAX_KG) || null, sugerencia: x.usarEnSugerencia !== false, orden: +x.orden || i + 1 }))
+    .filter(x => x.largo && x.ancho && x.alto).sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  return lista.length ? { lista, ejemplo: false } : { lista: CONT_ISO, ejemplo: true };
+}
+/* tipo inicial desde los datos: el contenedor que más sugiere BI en espacioOrdenes (T_ESPACIO_ORDENES); si no hay, el de mayor volumen
+   entre los que se usan en la sugerencia. Nada fijo en el código. */
+function tipoInicial(lista) {
+  const cnt = new Map();
+  ((EXPO && EXPO.espacioOrdenes) || []).forEach(o => { const s = String(o.contenedorSugerido || ''); const k = lista.filter(x => s.includes(x.id)).sort((a, b) => b.id.length - a.id.length)[0]; if (k) cnt.set(k, (cnt.get(k) || 0) + 1); });
+  if (cnt.size) return [...cnt.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const cand = lista.filter(x => x.sugerencia !== false);
+  return (cand.length ? cand : lista).reduce((a, b) => (b.largo * b.ancho * b.alto > a.largo * a.ancho * a.alto ? b : a));
+}
+/* empaque de embarque de un código: exportacion.empaques[cod] (T_EMPAQUES). medidas "reales" = largo × ancho × alto (cm);
+   si no, cubo equivalente del m³ por caja (ladoCuboCm = M3_CAJA^(1/3)), marcado "medidas estimadas desde m³". Sin datos: tamaño estimado. */
+function hashTxt(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function empaque(p, c) {
+  const emp = EXPO && EXPO.empaques, e = !emp ? null : Array.isArray(emp) ? emp.find(x => String(x.cod || x['COD. PRODUCTO'] || '').trim() === c.cod) : (emp[c.cod] || emp[p.clase + '__' + c.cod]);
+  if (e) {
+    const cm = v => (+v > 0 ? +v * 10 : null), pzCaja = +(e.pzPorCaja ?? e.piezasPorCaja ?? e.PIEZAS_POR_CAJA) || c.pzPorU || 1, pesoR = +(e.pesoKg ?? e.peso ?? e.PESO_KG), peso = pesoR > 0 ? pesoR : 0, sinPeso = !(pesoR > 0);
+    const L = mm(e.largoMm) || cm(e.largoCm ?? e.LARGO_CM), A = mm(e.anchoMm) || cm(e.anchoCm ?? e.ANCHO_CM), H = mm(e.altoMm) || cm(e.altoCm ?? e.ALTO_CM);
+    if (L && A && H) return { largo: L, ancho: A, alto: H, peso, pzCaja, ejemplo: false, sinPeso };
+    const m3 = +(e.m3Caja ?? e.M3_CAJA ?? e.M3_CAJA_NOMINAL), lado = cm(e.ladoCuboCm) || (m3 > 0 ? Math.cbrt(m3) * 1000 : null);
+    if (lado) return { largo: lado, ancho: lado, alto: lado, peso, pzCaja, ejemplo: false, cubo: true, sinPeso };
+    const h = hashTxt(c.cod);
+    return { largo: 480 + h % 160, ancho: 300 + (h >> 8) % 120, alto: 220 + (h >> 16) % 180, peso, pzCaja, ejemplo: false, estimada: true, sinPeso };
+  }
+  const h = hashTxt(c.cod), pz = c.pzPorU || 1;
+  return { largo: 480 + h % 160, ancho: 300 + (h >> 8) % 120, alto: 220 + (h >> 16) % 180, peso: Math.round((2 + pz * 0.04) * 10) / 10, pzCaja: pz, ejemplo: !EXPO, estimada: !!EXPO };
+}
+const etiquetaMedida = it => it.ejemplo ? ' (ejemplo)' : it.cubo ? ' (medidas estimadas desde m³)' : it.estimada ? ' (sin medidas ni m³: tamaño estimado)' : '';
+const capacidadBI = (cod, tipo) => { const x = EXPO && EXPO.capacidad && EXPO.capacidad[cod]; return x ? x[tipo] || null : null; };
+/* órdenes reales para la vista 3D, separadas por fuente:
+   · "programados" = pedidos programados (productos[].pedidosProgramados.ordenes; cajas = lo pedido);
+   · "transito"    = en tránsito que cuenta como inventario (productos[].transito.ordenes).
+   Sin esos campos se cae a exportacion.ordenes con programado / cuentaInventario. */
+function ordenesFuente(p, f) {
+  const k = f === 'transito' ? 'transito' : 'pedidosProgramados';
+  if (p[k] && Array.isArray(p[k].ordenes)) return p[k].ordenes;
+  if (!EXPO || !Array.isArray(EXPO.ordenes)) return [];
+  return EXPO.ordenes.filter(o => { const n = normOrden(o); return String(n.clase).toUpperCase() === p.clase.toUpperCase() && p.codigos.some(c => c.cod === n.cod) && (f === 'transito' ? o.cuentaInventario === true : o.programado === true); });
+}
+const ordenesDe = p => ordenesFuente(p, 'transito').concat(ordenesFuente(p, 'programados'));
+const mesOrden = o => { const n = normOrden(o); return n.mes || String(n.eta).slice(0, 7); };
+const esFuenteOrden = f => f === 'transito' || f === 'programados';
+const hayOrdenes = f => P.some(p => ordenesFuente(p, f).length);
+const hayTransito = () => hayOrdenes('transito');
+const FUENTES3 = [['kam', 'Forecast KAM'], ['alg', 'Algoritmo'], ['programados', 'Pedidos programados'], ['transito', 'En tránsito']];
+function mesesFuente(f) {
+  if (f === 'kam') return MV.slice();
+  if (f === 'alg') return MF.slice();
+  const s = new Set(); P.forEach(p => ordenesFuente(p, f).forEach(o => { const m = mesOrden(o); if (/^\d{4}-\d{2}$/.test(m)) s.add(m); }));
+  return [...s].sort();
+}
+/* lista de órdenes de la clase para el filtro "Orden" (más cajas primero) */
+function ordenesClase(f, cl, ms) {
+  const g = new Map();
+  P.filter(p => p.clase === cl).forEach(p => ordenesFuente(p, f).forEach(o => { const n = normOrden(o); if (ms && !ms.includes(mesOrden(o))) return; const x = g.get(n.orden) || { orden: n.orden, cliente: o.cliente || '', cajas: 0, mes: mesOrden(o) }; x.cajas += n.cajas || 0; g.set(n.orden, x); }));
+  return [...g.values()].sort((a, b) => b.cajas - a.cajas);
+}
+const PAL3 = ['#149CDC', '#D9661A', '#1A7F37', '#6250D6', '#C5281C', '#B07A00', '#2E8B8B', '#D35D8A', '#5D6A73', '#7A9A01', '#8E44AD', '#0A5E8A'];      // tonos bien separados entre vecinos
+function colorDe(p) {
+  const k = C3.color === 'cat' ? (p.cat || 'Sin categoría') : p.id;
+  const ord = C3.color === 'cat' ? (ordenCategorias() || [...new Set(P.map(x => x.cat))].sort()) : null;
+  const i = ord && ord.indexOf(k) >= 0 ? ord.indexOf(k) : hashTxt(k);
+  return PAL3[i % PAL3.length];
+}
+
+/* cajas a cargar con los filtros vigentes */
+function itemsCarga() {
+  const ms = mesesFuente(C3.fuente).filter(m => m >= C3.desde && m <= C3.hasta), out = [];
+  P.filter(p => p.clase === C3.clase && (!C3.prod || p.id === C3.prod)).forEach(p => p.codigos.forEach(c => {
+    if (C3.pres && presDe(c).toLowerCase() !== C3.pres) return;
+    const e = empaque(p, c);
+    let cajas = 0, pz = 0;
+    if (esFuenteOrden(C3.fuente)) {      // órdenes reales: cajas tal como vienen (pedidas o que viajan) y sus piezas
+      ordenesFuente(p, C3.fuente).forEach(o => { const n = normOrden(o); if ((n.cod || p.principal) !== c.cod || !ms.includes(mesOrden(o)) || (C3.orden && n.orden !== C3.orden)) return; cajas += n.cajas || 0; pz += n.piezas || (n.cajas || 0) * e.pzCaja; });
+      cajas = Math.ceil(cajas - 1e-9);
+    } else {
+      let u = 0;
+      if (C3.fuente === 'kam') u = ms.reduce((a, m) => a + kamU(c, m), 0);
+      else { if (c.cod !== p.principal || !c.pzPorU) return; u = ms.reduce((a, m) => a + (p.alg[m] || 0), 0) / c.pzPorU; }
+      pz = u * (c.pzPorU || 1); cajas = Math.ceil(pz / (e.pzCaja || 1) - 1e-9);
+    }
+    if (cajas > 0) out.push(Object.assign({ p, c, cajas, piezas: Math.round(pz), color: colorDe(p) }, e));
+  }));
+  return out.sort((a, b) => b.alto - a.alto || b.largo * b.ancho - a.largo * a.ancho);
+}
+/* plan de carga por paredes con columnas mixtas: una pared tiene la profundidad de su primera caja; dentro de la pared se arman columnas
+   a lo ancho y cada columna se apila hasta la altura útil, mezclando productos si la caja cabe (más angosta y no más profunda que la pared).
+   Las cajas solo giran sobre su base (nunca se acuestan). Se carga del fondo hacia la puerta; con más peso que la carga máxima se abre otro contenedor. */
+function empacar(items, k) {
+  const L = k.largo, W = k.ancho, H = k.alto, Pm = k.pesoMax || Infinity, conts = [], noCaben = [], Vutil = L * W * H * (factorLlenado() || 1);      // factor de llenado de BI (T_PARAMETROS_EXPORTACION)
+  const nuevo = () => ({ cajas: [], peso: 0, vol: 0, porItem: new Map(), pared: null, xFin: 0 });
+  let cur = nuevo();
+  const cerrar = () => { if (cur.cajas.length) conts.push(cur); cur = nuevo(); };
+  const poner = (it, l, w, h, x0, z0, y0) => {
+    cur.cajas.push({ it, x: x0 + l / 2, y: y0 + h / 2, z: -W / 2 + z0 + w / 2, l, w, h });
+    cur.peso += it.peso; cur.vol += l * w * h; cur.porItem.set(it, (cur.porItem.get(it) || 0) + 1);
+  };
+  function colocar(it) {
+    const h = it.alto, ori = [[it.largo, it.ancho], [it.ancho, it.largo]].filter(([l, w]) => l <= L && w <= W && h <= H);
+    if (!ori.length) return false;
+    if ((cur.peso + it.peso > Pm || cur.vol + it.largo * it.ancho * it.alto > Vutil) && cur.cajas.length) cerrar();
+    const pa = cur.pared;
+    if (pa) {
+      const col = pa.cols[pa.cols.length - 1];
+      // 1) encima de la columna actual
+      const o1 = ori.filter(([l, w]) => l <= pa.d && w <= col.w).sort((a, b) => b[1] - a[1])[0];
+      if (o1 && col.y + h <= H) { poner(it, o1[0], o1[1], h, pa.x0, col.z0, col.y); col.y += h; return true; }
+      // 2) columna nueva en la misma pared
+      const o2 = ori.filter(([l, w]) => l <= pa.d && pa.z + w <= W).sort((a, b) => a[1] - b[1])[0];
+      if (o2) { pa.cols.push({ z0: pa.z, w: o2[1], y: h }); poner(it, o2[0], o2[1], h, pa.x0, pa.z, 0); pa.z += o2[1]; return true; }
+    }
+    // 3) pared nueva (la orientación más delgada en profundidad), o contenedor nuevo si no queda largo
+    const x0 = pa ? pa.x0 + pa.d : 0, o3 = ori.slice().sort((a, b) => a[0] - b[0])[0];
+    if (x0 + o3[0] > L) { cerrar(); return colocar(it); }
+    cur.pared = { x0, d: o3[0], z: o3[1], cols: [{ z0: 0, w: o3[1], y: h }] };
+    poner(it, o3[0], o3[1], h, x0, 0, 0); cur.xFin = x0 + o3[0];
+    return true;
+  }
+  items.forEach(it => { for (let r = 0; r < it.cajas; r++) if (!colocar(it)) { noCaben.push(it); break; } });
+  cerrar();
+  return { conts, noCaben, vol: L * W * H, k };
+}
+
+/* ---------- pantalla ---------- */
+function opcionesC3() {
+  const ms = mesesFuente(C3.fuente);
+  if (!C3.clase || !D.clases.includes(C3.clase)) C3.clase = S.dist !== 'TODOS' ? S.dist : D.clases[0];
+  if (!ms.includes(C3.desde)) C3.desde = ms.includes(MK[0]) ? MK[0] : ms[0];
+  if (!ms.includes(C3.hasta) || C3.hasta < C3.desde) C3.hasta = C3.desde;
+  if (C3.prod && !P.some(p => p.id === C3.prod && p.clase === C3.clase)) C3.prod = '';
+  return ms;
+}
+const conExportacion = () => !!EXPO || KAMN === 'MONICA';
+const factorLlenado = () => { const x = EXPO || {}, pr = x.parametros || {}, f = pr.FACTOR_LLENADO; const v = +(x.factorLlenado ?? x.FACTOR_LLENADO ?? (f && typeof f === 'object' ? f.valor : f) ?? pr.factorLlenado); return v > 0 && v <= 1 ? v : null; };      // T_PARAMETROS_EXPORTACION
+function pintarContenedor() {
+  const box = $('#v-contenedor'); if (!box) return;
+  const ms = opcionesC3(), { lista, ejemplo } = contenedores(), k = lista.find(x => x.id === C3.tipo) || tipoInicial(lista); C3.tipo = k.id;
+  const prods = P.filter(p => p.clase === C3.clase).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const pres = [...new Set(prods.flatMap(p => p.codigos.map(c => presDe(c).toLowerCase())))].filter(Boolean).sort();
+  const items = itemsCarga(), plan = empacar(items, k); C3.plan = plan; if (C3.idx >= plan.conts.length) C3.idx = 0;
+  const ejEmp = items.some(i => i.ejemplo), totC = items.reduce((a, i) => a + i.cajas, 0), totPz = items.reduce((a, i) => a + i.piezas, 0);
+  const volT = items.reduce((a, i) => a + i.cajas * i.largo * i.ancho * i.alto, 0) / 1e9, pesoT = items.reduce((a, i) => a + i.cajas * i.peso, 0);
+  const cu = plan.conts[C3.idx], n = plan.conts.length, pct = x => nf.format(x * 100) + ' %';
+  const sel = (id, lbl, opts, val) => `<label class="c3-f"><span>${lbl}</span><select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}"${v === val ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+  const seg = (attr, opts, val) => `<div class="seg" role="group">${opts.map(([v, t, dis]) => `<button type="button" data-${attr}="${esc(v)}" aria-pressed="${v === val}"${dis ? ' disabled title="Sin órdenes de esta fuente en los datos"' : ''}>${esc(t)}</button>`).join('')}</div>`;
+  box.innerHTML = `<section class="panel c3" aria-labelledby="c3-t">
+    <div class="panel-h"><h2 id="c3-t">Contenedores 3D</h2><span class="nota">${esc(k.nombre)} · interior ${nf2.format(k.largo / 1000)} × ${nf2.format(k.ancho / 1000)} × ${nf2.format(k.alto / 1000)} m · ${nf1.format(k.largo * k.ancho * k.alto / 1e9)} m³${k.pesoMax ? ' · carga máxima ' + fN(k.pesoMax) + ' kg' : ''}</span></div>
+    ${ejemplo || ejEmp ? `<p class="aviso info c3-ej"><b>Ejemplo.</b> ${ejemplo ? 'Contenedores con medidas ISO estándar. ' : ''}${ejEmp ? 'Las cajas usan medidas de empaque estimadas. ' : ''}Los datos reales de contenedores y empaques llegan con la próxima carga.</p>` : ''}
+    ${items.some(i => i.cubo || i.estimada) ? `<p class="small muted c3-ej">${items.some(i => i.cubo) ? 'Medidas estimadas desde m³: las cajas sin largo, ancho y alto se dibujan como el cubo equivalente de su m³ por caja (T_EMPAQUES · M3_CAJA). ' : ''}${items.some(i => i.estimada) ? 'Algunas cajas no tienen medidas ni m³ en T_EMPAQUES: se dibujan con un tamaño estimado. ' : ''}${factorLlenado() ? 'Se llena hasta el ' + nf.format(factorLlenado() * 100) + ' % del volumen interior (factor de llenado de BI).' : ''}</p>` : (factorLlenado() ? `<p class="small muted c3-ej">Se llena hasta el ${nf.format(factorLlenado() * 100)} % del volumen interior (factor de llenado de BI).</p>` : '')}
+    <details class="c3-filtros-box"${C3.filtros ?? !matchMedia('(max-width: 620px)').matches ? ' open' : ''}><summary>Filtros</summary><div class="c3-filtros">
+      <div class="c3-f"><span>Contenedor</span>${seg('c3tipo', lista.map(x => [x.id, x.nombre]), C3.tipo)}</div>
+      <div class="c3-f"><span>Fuente</span>${seg('c3fuente', FUENTES3.map(([v, t]) => [v, t, esFuenteOrden(v) && !hayOrdenes(v)]), C3.fuente)}</div>
+      ${sel('c3-desde', 'Desde', ms.map(m => [m, ml(m)]), C3.desde)}${sel('c3-hasta', 'Hasta', ms.filter(m => m >= C3.desde).map(m => [m, ml(m)]), C3.hasta)}
+      ${sel('c3-clase', 'Distribuidor', D.clases.map(c => [c, c]), C3.clase)}
+      ${sel('c3-prod', 'Producto', [['', 'Todos los productos']].concat(prods.map(p => [p.id, p.nombre])), C3.prod)}
+      ${sel('c3-pres', 'Presentación', [['', 'Todas']].concat(pres.map(x => [x, x.charAt(0).toUpperCase() + x.slice(1)])), C3.pres)}
+      ${esFuenteOrden(C3.fuente) ? sel('c3-orden', 'Orden', [['', 'Todas las órdenes']].concat(ordenesClase(C3.fuente, C3.clase, ms.filter(m => m >= C3.desde && m <= C3.hasta)).map(o => [o.orden, o.orden + (o.cliente ? ' · ' + o.cliente : '') + ' · ' + fN(o.cajas) + ' cajas'])), C3.orden) : ''}
+      ${sel('c3-color', 'Color por', [['cat', 'Categoría'], ['prod', 'Producto']], C3.color)}
+    </div></details>
+    <div class="c3-kpis">
+      <div><span>Cajas a cargar</span><b>${fN(totC)}</b><small>${fN(totPz)} pz · ${nf1.format(volT)} m³ · ${items.length && items.every(i => i.sinPeso) ? 'peso sin dato' : fN(pesoT) + ' kg'}</small></div>
+      <div><span>Contenedores necesarios</span><b>${fN(n)}</b><small>${esc(k.nombre)}${plan.noCaben.length ? ' · ' + plan.noCaben.length + ' empaques no caben por medida' : ''}</small></div>
+      <div><span>Contenedor ${n ? C3.idx + 1 : 0} de ${n}</span><b>${cu ? fN(cu.cajas.length) + ' cajas' : '—'}</b><small>${cu ? (n > 1 ? 'caben en este; ' + fN(totC - cu.cajas.length) + ' cajas van en los otros ' + (n - 1) : 'toda la carga cabe aquí') : 'sin carga con estos filtros'}</small></div>
+      <div><span>Ocupación de este contenedor</span><b>${cu ? pct(cu.vol / plan.vol) + ' vol.' : '—'}</b><small>${cu && items.length && items.every(i => i.sinPeso) ? 'peso: sin dato en T_EMPAQUES' : cu && k.pesoMax ? pct(cu.peso / k.pesoMax) + ' del peso (' + fN(cu.peso) + ' kg)' : ''}</small><span class="c3-bar" aria-hidden="true"><i style="width:${cu ? Math.min(100, cu.vol / plan.vol * 100).toFixed(1) : 0}%"></i></span></div>
+    </div>
+    ${n > 1 ? `<nav class="c3-nav" aria-label="Contenedores">${plan.conts.map((x, i) => `<button type="button" class="c3-mini" data-c3idx="${i}" aria-pressed="${i === C3.idx}" aria-label="Contenedor ${i + 1}: ${fN(x.cajas.length)} cajas, ${pct(x.vol / plan.vol)} del volumen"><b>${i + 1}</b><span class="c3-bar" aria-hidden="true"><i style="width:${Math.min(100, x.vol / plan.vol * 100).toFixed(0)}%"></i></span><small>${pct(x.vol / plan.vol)}</small></button>`).join('')}</nav>` : ''}
+    <div class="c3-escena-box">
+      <div id="c3-escena" class="c3-escena" role="img" aria-label="${esc(cu ? `${k.nombre}, contenedor ${C3.idx + 1} de ${n}: ${cu.cajas.length} cajas, ${pct(cu.vol / plan.vol)} del volumen. El detalle está en la tabla Plan de carga.` : 'Contenedor vacío con estos filtros')}"><p class="c3-msg">Cargando la vista 3D…</p></div>
+      <div class="c3-tip" id="c3-tip" hidden></div>
+      <div class="c3-ctrl">
+        <button type="button" class="btn" data-c3cam="34">Vista 3/4</button><button type="button" class="btn" data-c3cam="puerta">Desde la puerta</button><button type="button" class="btn" data-c3cam="planta">Planta</button>
+        <button type="button" class="btn" id="c3-anim" data-c3anim>Repetir carga</button>
+        ${n > 1 ? `<button type="button" class="btn" data-c3idx="${Math.max(0, C3.idx - 1)}"${C3.idx ? '' : ' disabled'} aria-label="Contenedor anterior">‹</button><button type="button" class="btn" data-c3idx="${Math.min(n - 1, C3.idx + 1)}"${C3.idx < n - 1 ? '' : ' disabled'} aria-label="Contenedor siguiente">›</button>` : ''}
+      </div>
+    </div>
+    <div class="legend c3-ley">${leyenda3(cu)}</div>
+    <p class="small muted">Arrastre para girar; rueda o pellizco para acercar. Al seleccionar una caja se muestra su producto. Las cajas no se acuestan: solo giran sobre su base. La carga va del fondo hacia la puerta, piso por piso, sin pasar la altura útil.</p>
+    <details class="c3-plan"><summary>Plan de carga (tabla)</summary>${tablaPlan(plan)}</details>
+  </section>`;
+  dibujar3D(plan);
+}
+function leyenda3(cu) {
+  if (!cu) return '';
+  const g = new Map();
+  cu.porItem.forEach((nC, it) => { const k = C3.color === 'cat' ? (it.p.cat || 'Sin categoría') : it.p.nombre; const o = g.get(k) || { color: it.color, cajas: 0 }; o.cajas += nC; g.set(k, o); });
+  return [...g.entries()].sort((a, b) => b[1].cajas - a[1].cajas).map(([k, o]) => `<span><i class="sw col" style="background:${o.color}"></i>${esc(C3.color === 'cat' ? nombreCat(k) : k)} · ${fN(o.cajas)} cajas</span>`).join('');
+}
+function tablaPlan(plan) {
+  const filas = []; plan.conts.forEach((x, i) => x.porItem.forEach((nC, it) => filas.push([i + 1, it, nC])));
+  if (!filas.length) return '<p class="small muted">Sin carga con estos filtros.</p>';
+  return `<div class="tw" role="region" tabindex="0" aria-label="Plan de carga" style="max-height:320px"><table class="tbl"><thead><tr><th>Cont.</th><th class="l">Producto</th><th class="l">Presentación</th><th>Cajas</th><th>Piezas</th><th class="l">Caja (cm)</th><th>Kg por caja</th></tr></thead><tbody>
+    ${filas.map(([i, it, nC]) => `<tr><td>${i}</td><td class="l" style="white-space:normal">${esc(descB(it.c))}</td><td class="l">${esc(cNom(it.c))}</td><td>${fN(nC)}</td><td>${fN(nC * it.pzCaja)}</td><td class="l">${nf.format(it.largo / 10)} × ${nf.format(it.ancho / 10)} × ${nf.format(it.alto / 10)}${etiquetaMedida(it)}</td><td>${nf1.format(it.peso)}</td></tr>`).join('')}
+    </tbody></table></div>${plan.noCaben.length ? `<p class="aviso" style="margin-top:8px">No caben por medida en este contenedor: ${plan.noCaben.map(i => esc(descB(i.c))).join(', ')}.</p>` : ''}`;
+}
+
+/* ---------- escena three.js ---------- */
+const MOV_REDUCIDO = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+async function cargarTres() {
+  if (C3.tres) return C3.tres;
+  const [THREE, oc] = await Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')]);      // import map de la plantilla
+  return (C3.tres = { THREE, OrbitControls: oc.OrbitControls });
+}
+async function dibujar3D(plan) {
+  const el = $('#c3-escena'); if (!el) return;
+  let T;
+  try { T = await cargarTres(); } catch (e) { el.innerHTML = `<p class="c3-msg">No se pudo cargar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue disponible en la tabla.</p>`; return; }
+  if (!$('#c3-escena') || C3.plan !== plan) return;
+  if (C3.escena) C3.escena.destruir();
+  try { C3.escena = escena3D(T, $('#c3-escena'), plan, plan.conts[C3.idx]); }
+  catch (e) { C3.escena = null; $('#c3-escena').innerHTML = `<p class="c3-msg">Este navegador no pudo dibujar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue disponible en la tabla.</p>`; }
+}
+function escena3D(T, el, plan, cont) {
+  const { THREE, OrbitControls } = T, k = plan.k, Lm = k.largo / 1000, Wm = k.ancho / 1000, Hm = k.alto / 1000, movil = matchMedia('(pointer: coarse)').matches;
+  el.innerHTML = '';
+  const renderer = new THREE.WebGLRenderer({ antialias: !movil, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, movil ? 1.5 : 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  el.appendChild(renderer.domElement); renderer.domElement.setAttribute('aria-hidden', 'true');
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#F4F7F9');
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 200);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xc9d1d8, 1.25));
+  const sol = new THREE.DirectionalLight(0xffffff, 1.35); sol.position.set(Lm * 0.3, Hm * 4, Wm * 3); scene.add(sol);
+  const g0 = new THREE.Group(); g0.position.set(-Lm / 2, 0, 0); scene.add(g0);       // x: 0 = fondo, Lm = puerta
+  const piso = new THREE.Mesh(new THREE.BoxGeometry(Lm, 0.02, Wm), new THREE.MeshStandardMaterial({ color: '#B9C3CB', roughness: 0.9 })); piso.position.set(Lm / 2, -0.01, 0); g0.add(piso);
+  const vidrio = new THREE.MeshBasicMaterial({ color: '#8FA1B0', transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false });
+  [[Lm, Hm, 0.005, Lm / 2, Hm / 2, -Wm / 2], [0.005, Hm, Wm, 0, Hm / 2, 0]]      // solo la pared del fondo y la lateral lejana: lo demás deja ver la carga
+    .forEach(([a, b, c, x, y, z]) => { const m = new THREE.Mesh(new THREE.BoxGeometry(a, b, c), vidrio); m.position.set(x, y, z); g0.add(m); });
+  const aristas = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Lm, Hm, Wm)), new THREE.LineBasicMaterial({ color: '#5D6A73' })); aristas.position.set(Lm / 2, Hm / 2, 0); g0.add(aristas);
+  const pA = (k.puertaAncho || k.ancho) / 1000, pH = (k.puertaAlto || k.alto) / 1000;
+  const marco = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(pA, pH)), new THREE.LineBasicMaterial({ color: '#0A78AE' })); marco.rotation.y = Math.PI / 2; marco.position.set(Lm + 0.005, pH / 2, 0); g0.add(marco);
+  // cajas: una sola InstancedMesh con color por instancia (miles de cajas en una llamada de dibujo)
+  const cajas = cont ? cont.cajas : [], n = cajas.length, hueco = 0.012;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0 }), Math.max(1, n));
+  mesh.count = n; mesh.frustumCulled = false; g0.add(mesh);      // las instancias se mueven: la esfera de recorte calculada al inicio quedaría vieja
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Sx = new THREE.Vector3(), Pv = new THREE.Vector3(), col = new THREE.Color();
+  const fin = cajas.map(b => new THREE.Vector3(b.x / 1000, b.y / 1000, b.z / 1000));
+  cajas.forEach((b, i) => { col.set(b.it.color); col.offsetHSL(0, 0, ((i % 3) - 1) * 0.035); mesh.setColorAt(i, col); });
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  const poner = (i, pos) => { const b = cajas[i]; Sx.set(b.l / 1000 - hueco, b.h / 1000 - hueco, b.w / 1000 - hueco); M.compose(pos, Q, Sx); mesh.setMatrixAt(i, M); };
+  // cámara y controles (mouse y táctil)
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49; controls.minDistance = 1;
+  const vistas = { '34': [0.62, 0.5, 0.6], puerta: [1, 0.22, 0.0001], planta: [0.0001, 1, 0.0001] };
+  // render a demanda: solo mientras hay animación o la cámara se mueve
+  let vivo = 0, raf = 0, anim = null;
+  function cuadro(t) {
+    raf = 0;
+    if (anim) anim(t);
+    const mov = controls.update();
+    renderer.render(scene, camera);
+    if (anim || mov || vivo > 0) { vivo = Math.max(0, vivo - 1); raf = requestAnimationFrame(cuadro); }
+  }
+  const pedir = (frames = 2) => { vivo = Math.max(vivo, frames); if (!raf) raf = requestAnimationFrame(cuadro); };
+  function camara(v) {      // encuadra todo el contenedor según el campo de visión y el ancho de la pantalla
+    const d0 = vistas[v] || vistas['34'], len = Math.hypot(...d0), fov = camera.fov * Math.PI / 180, fovH = 2 * Math.atan(Math.tan(fov / 2) * camera.aspect);
+    const R = Math.hypot(Lm, Hm, Wm) / 2, dist = R / Math.sin(Math.min(fov, fovH) / 2) * (v === 'puerta' ? 0.55 : v === 'planta' ? 0.62 : 0.72);
+    camera.position.set(d0[0] / len * dist, Hm * 0.3 + d0[1] / len * dist, d0[2] / len * dist);
+    controls.target.set(0, Hm * 0.3, 0); controls.maxDistance = dist * 2.2; controls.update(); pedir();
+  }
+  controls.addEventListener('change', () => pedir(2));
+  // animación de carga: las cajas entran por la puerta en orden de carga; con movimiento reducido se muestra la carga final.
+  // El botón la omite mientras corre (control visible para detener el movimiento) y la repite cuando termina.
+  const btn = $('#c3-anim');
+  function cargar(animar) {
+    if (!n) { pedir(); return; }
+    if (!animar || MOV_REDUCIDO()) { anim = null; fin.forEach((p, i) => poner(i, p)); mesh.instanceMatrix.needsUpdate = true; if (btn) btn.textContent = 'Repetir carga'; pedir(); return; }
+    const dur = 420, paso = Math.min(14, 2600 / n), t0 = performance.now(), afuera = Lm + 1.2;
+    if (btn) btn.textContent = 'Omitir animación';
+    anim = t => {
+      let listo = true;
+      for (let i = 0; i < n; i++) {
+        const u = Math.min(1, Math.max(0, (t - t0 - i * paso) / dur)); if (u < 1) listo = false;
+        const e = 1 - Math.pow(1 - u, 3), f = fin[i];
+        if (u === 0) Pv.set(afuera + 3, f.y, f.z); else Pv.set(f.x + (afuera - f.x) * (1 - e), f.y + 0.25 * (1 - e), f.z);
+        poner(i, Pv);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (listo) { anim = null; if (btn) btn.textContent = 'Repetir carga'; }
+    };
+    pedir();
+  }
+  // selección: tooltip con producto, presentación, cajas y piezas en este contenedor
+  const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), tip = $('#c3-tip');
+  function tocar(ev) {
+    const r = renderer.domElement.getBoundingClientRect(); ptr.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ptr, camera); const h = ray.intersectObject(mesh)[0];
+    if (!h || h.instanceId == null || !tip) { if (tip) tip.hidden = true; return; }
+    const it = cajas[h.instanceId].it, nC = cont.porItem.get(it) || 0;
+    tip.innerHTML = `<b>${esc(descB(it.c))}</b><span>${esc(cNom(it.c))} · caja ${nf.format(it.largo / 10)} × ${nf.format(it.ancho / 10)} × ${nf.format(it.alto / 10)} cm${etiquetaMedida(it)}</span>${capacidadBI(it.c.cod, k.id) ? `<span>Capacidad BI: ${fN(capacidadBI(it.c.cod, k.id).cajas)} cajas de este producto por contenedor</span>` : ''}<span>${fN(nC)} cajas en este contenedor · ${fN(nC * it.pzCaja)} pz · ${fN(it.cajas)} cajas en total</span>`;
+    tip.hidden = false;
+    const tw = tip.offsetWidth || 240, x = ev.clientX - r.left, y = ev.clientY - r.top;
+    tip.style.left = Math.max(4, Math.min(r.width - tw - 4, x + 12)) + 'px'; tip.style.top = Math.max(4, y - 10) + 'px';
+  }
+  let abajo = null;
+  renderer.domElement.addEventListener('pointerdown', ev => { abajo = [ev.clientX, ev.clientY]; });
+  renderer.domElement.addEventListener('pointerup', ev => { if (abajo && Math.hypot(ev.clientX - abajo[0], ev.clientY - abajo[1]) < 6) tocar(ev); abajo = null; });
+  const ajustar = () => { const w = el.clientWidth || 600, h = el.clientHeight || 420; renderer.setSize(w, h, false); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%'; camera.aspect = w / h; camera.updateProjectionMatrix(); pedir(); };
+  const ro3 = new ResizeObserver(ajustar); ro3.observe(el);
+  ajustar(); camara('34'); cargar(true);
+  return {
+    camara, animando: () => !!anim, recargar: () => cargar(!anim),
+    destruir() { cancelAnimationFrame(raf); ro3.disconnect(); controls.dispose(); scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) [].concat(o.material).forEach(m => m.dispose()); }); renderer.dispose(); renderer.domElement.remove(); },
+  };
 }
 
 /* ---------- detalle del producto (<dialog> modal) ---------- */
@@ -1046,7 +1414,7 @@ function graficoProducto(p) {
 }
 function lecturaProducto(p) {
   const f = fac(p), t = tend(p), m0 = MK[0], vigN = p.codigos.reduce((s, c) => s + (vig(c, m0) || 0) * (c.pzPorU || 0), 0) / f;
-  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y tu formulario vigente dice <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${fN(dias(p))} días</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses tu forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses en que diste forecast).` : ''}`;
+  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y el formulario vigente registra <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${fN(dias(p))} días</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses el forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses en que diste forecast).` : ''}`;
 }
 function bloqueCaptura(p, c) {
   const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null, av = c.avanceU != null ? c.avanceU : (c.cod === p.principal && c.pzPorU && p.avanceSellInPz && p.avanceSellInPz[MC] != null ? p.avanceSellInPz[MC] / c.pzPorU : null);
@@ -1117,12 +1485,14 @@ function htmlAlgoritmo(p) {
   }).join('') + `<p class="small muted" style="margin-top:12px">El algoritmo del producto suma todos sus códigos.</p>` + BI_DET(`<p class="tec">Fuente: ${FUENTE_ALG} → datos.json productos[].codigos[].calc (l3, l6, l12, mv3/6/12, idx, prom, fc).</p>`);
 }
 function htmlInventario(p) {
-  const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase);
+  const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase), ip = invPartes(p) || { dist: 0, tr: 0, tot: 0, ordenes: [] };
   const dd = dias(p), pos = i && dd != null ? Math.min(100, dd / 200 * 100) : null;
   return `<div class="panel-h"><h2>Inventario y precio</h2></div><div><div>
-    ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(i.pz / f)} ${esc(uNom(p))}</b> (${fN(i.pz)} pz). Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : fN(dd) + ' días') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + ' días.' : ''}</p>
+    ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(ip.dist / f)} ${esc(uNom(p))}</b> (${fN(ip.dist)} pz)${ip.tr ? `; además vienen en camino <b>${fN1(ip.tr / f)} ${esc(uNom(p))}</b> (${fN(ip.tr)} pz en ${ip.ordenes.length || 'varias'} ${ip.ordenes.length === 1 ? 'orden' : 'órdenes'}${ip.ordenes.length ? ', primera llegada ' + esc(fmtEta([...ip.ordenes].map(ordEta).filter(Boolean).sort()[0])) : ''}). Inventario total: <b>${fN(ip.tot)} pz</b>` : ''}. Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : diasTxt(dd) + '') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + (Math.round(i.dohFuente) === 1 ? ' día.' : ' días.') : ''}</p>
       ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${rz / 2}%;background:#F6C9C6"></span><span style="width:${45 - rz / 2}%;background:#CFEBDD"></span><span style="width:45%;background:#FBE6BF"></span><span style="width:10%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
-      <div class="escala-l"><span>0</span><span>${rz} quiebre</span><span>90 sobrestock</span><span>180 exceso</span><span>200+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b></p>` : ''}
+      <div class="escala-l"><span>0</span><span>${rz} quiebre</span><span>90 sobrestock</span><span>180 exceso</span><span>200+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b>${ip.tr ? ' · los días incluyen el tránsito que cuenta' : ''}</p>` : ''}
+      ${ip.tr ? `<div style="margin-top:8px">${tablaOrdenes(p)}${reglaTransito() ? `<p class="small muted" style="margin-top:6px">Tránsito que cuenta: ${esc(reglaTransito())}</p>` : ''}</div>` : ''}
+      ${progDe(p) ? `<div style="margin-top:8px"><p class="prosa">Además hay <b>${fN(progDe(p).cajas)} cajas</b> (${fN(progDe(p).pz)} pz) en pedidos programados. ${PROG_KAM.replace('Pedidos programados: t', 'T')}</p>${tablaOrdenes(p, true)}${reglaProgramados() ? `<p class="small muted solo-bi" style="margin-top:6px">Regla completa (BI): ${esc(reglaProgramados())}</p>` : ''}</div>` : ''}
       <div class="chart" id="ch-inv" style="margin-top:10px"></div>
       <p class="small muted">${Object.keys(i.hist || {}).length < 3 ? esc(p.clase) + ' solo ha enviado ' + Object.keys(i.hist || {}).length + ' cortes de inventario: el historial es corto.' : 'Un corte de inventario por mes.'}</p>`
       : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
@@ -1140,14 +1510,14 @@ function pintarDetalle(p) {
   $('#det').innerHTML = `<div class="det-in">
   <div class="det-h"><div style="min-width:0"><h2 id="det-t">${esc(p.nombre)}</h2>
     <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · código principal ${esc(p.principal)} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
-    <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}</div>
+    <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}${conExportacion() ? `<button type="button" class="chip" data-c3prod="${esc(p.id)}">Ver en contenedor 3D</button>` : ''}</div>
     ${(p.sustituidos || []).length ? `<div class="small muted" style="margin-top:6px">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
     ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
     <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
   <div id="det-avisos">${avisosHtml(av)}</div>
   <div class="mini">
     <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span></div>
-    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(inv.pz / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span><span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : fN(dias(p)) + ' días · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
+    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(invTot(p) / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span>${inv && conTransito(p) ? `<span class="sub">${fN1(invPartes(p).dist / f)} en el distribuidor + ${fN1(invPartes(p).tr / f)} en tránsito</span>` : ''}<span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : diasTxt(dias(p)) + ' · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
     <div class="kpi"><span class="lbl">Algoritmo · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
     <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el algoritmo · ${fC(kamValM(p, MK))}</span></div>
   </div>
@@ -1408,6 +1778,9 @@ function vista(v) {
   S.vista = v;
   document.querySelectorAll('#f-vista button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
   $('#v-tendencia').hidden = v !== 'tendencia'; $('#v-capturar').hidden = v !== 'capturar'; $('#v-metodo').hidden = v !== 'metodo';
+  const vc = $('#v-contenedor'); if (vc) vc.hidden = v !== 'contenedor';
+  if (v !== 'contenedor' && C3.escena) { C3.escena.destruir(); C3.escena = null; }      // libera la GPU al salir de la vista 3D
+  if (v === 'contenedor') pintarContenedor();
   if (v === 'capturar') pintarGrid();
   if (v === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarDistribuidores(); pintarLista(); }
 }
@@ -1418,8 +1791,15 @@ document.addEventListener('click', ev => {
   const t = ev.target.closest('button,[data-rs-ir]'); if (!t) return;
   const ds = t.dataset;
   if (ds.exp) { const fn = EXP[ds.exp]; if (fn) abrirExp(fn(ds)); return; }
-  if (ds.d) { S.dist = ds.d; S.lim = 60; S.capLim = 25; pintarEncabezado(); vista(S.vista); return; }
+  if (ds.d) { S.dist = ds.d; S.lim = 60; S.capLim = 25; if (S.dist !== 'TODOS') { C3.clase = S.dist; C3.prod = ''; C3.idx = 0; } pintarEncabezado(); vista(S.vista); return; }
   if (ds.v) { vista(ds.v); return; }
+  /* 0.5.0 · contenedores 3D */
+  if (ds.c3tipo) { C3.tipo = ds.c3tipo; C3.idx = 0; pintarContenedor(); return; }
+  if (ds.c3fuente) { C3.fuente = ds.c3fuente; C3.orden = ''; C3.idx = 0; pintarContenedor(); return; }
+  if (ds.c3idx != null) { C3.idx = +ds.c3idx; pintarContenedor(); return; }
+  if (ds.c3cam) { if (C3.escena) C3.escena.camara(ds.c3cam); return; }
+  if ('c3anim' in ds) { if (C3.escena) C3.escena.recargar(); return; }
+  if (ds.c3prod) { const p = PID[ds.c3prod]; if (p) { C3.clase = p.clase; C3.prod = p.id; C3.pres = ''; C3.idx = 0; cerrar(); vista('contenedor'); } return; }
   if (ds.u) { S.unidad = ds.u; guardarLocal(); pintarEncabezado(); vista(S.vista); if (S.abierto) pintarDetalle(PID[S.abierto]); return; }
   if (ds.chip) { S.chip = ds.chip; S.lim = 60; pintarEncabezado(); pintarLista(); return; }
   if (ds.chip2) { S.chip2 = ds.chip2; S.capLim = 25; pintarEncabezado(); pintarGrid(); return; }
@@ -1465,7 +1845,7 @@ document.addEventListener('focusin', ev => {
   const el = ev.target;
   if (el.classList && el.classList.contains('inp') && el.closest('#v-capturar')) { S.foco = [el.dataset.line, el.dataset.mes]; inspector(el.dataset.line, el.dataset.mes); if (!el.readOnly) el.select(); }
 });
-document.addEventListener('toggle', ev => { if (ev.target.classList && ev.target.classList.contains('cat')) S.catAbierta[ev.target.dataset.cat] = ev.target.open; if (ev.target.id === 'rs-box' && ev.target.open) abrirRastreo(); if (ev.target.id === 'lj-box' && ev.target.open) abrirLinaje(); }, true);
+document.addEventListener('toggle', ev => { if (ev.target.classList && ev.target.classList.contains('c3-filtros-box')) C3.filtros = ev.target.open; if (ev.target.classList && ev.target.classList.contains('cat')) S.catAbierta[ev.target.dataset.cat] = ev.target.open; if (ev.target.id === 'rs-box' && ev.target.open) abrirRastreo(); if (ev.target.id === 'lj-box' && ev.target.open) abrirLinaje(); }, true);
 document.addEventListener('input', ev => {
   const el = ev.target;
   if (el.id === 'q') { S.q = el.value; S.lim = 60; debounce(pintarLista); return; }
@@ -1486,6 +1866,8 @@ document.addEventListener('input', ev => {
 document.addEventListener('change', ev => {
   if (ev.target.id === 'f-cat') { S.cat = ev.target.value; S.lim = 60; pintarLista(); }
   if (ev.target.id === 'f-orden') { S.orden = ev.target.value; pintarLista(); }
+  const C3SEL = { 'c3-desde': 'desde', 'c3-hasta': 'hasta', 'c3-clase': 'clase', 'c3-prod': 'prod', 'c3-pres': 'pres', 'c3-color': 'color', 'c3-orden': 'orden' };
+  if (C3SEL[ev.target.id]) { C3[C3SEL[ev.target.id]] = ev.target.value; if (ev.target.id === 'c3-clase') { C3.prod = ''; C3.pres = ''; C3.orden = ''; } if (ev.target.id === 'c3-desde' || ev.target.id === 'c3-hasta') C3.orden = ''; C3.idx = 0; pintarContenedor(); }
   if (ev.target.id === 'rs-m') { RS.m = ev.target.value; RS.path = []; RS.dim = null; RS.lim = 200; pintarRastreo(); }
 });
 $('#det').addEventListener('close', () => { S.abierto = null; RS.p = null; });

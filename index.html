@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>Forecast</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <style>
 /* Portal de forecast KAM · v0.4.0 (24/11/2026, en local; base v0.30 del 23/11/2026)
    Layout: barra arriba (KAM, ciclo, guardado) · filtros (distribuidor, vista, unidad) · vistas Tendencia / Capturar / Cómo se calcula
@@ -376,6 +377,41 @@ details.cat .item:last-of-type{border-bottom:0}
   .tbl.tdist td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;font-weight:600;color:var(--ink-3)}
   .tbl.tdist td:first-child::before{display:none}
 }
+/* ---------- 0.5.0 · contenedores 3D ---------- */
+.c3-ej{margin-bottom:10px}
+.c3-filtros-box>summary{cursor:pointer;font-weight:600;min-height:var(--target);display:none}
+.c3-filtros{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:12px}
+.c3-f{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--ink-3);min-width:0}
+.c3-f select{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:6px 10px;min-height:var(--target);font-size:max(14px,1em);max-width:260px;color:var(--ink)}
+.c3-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.c3-kpis>div{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0;background:var(--surface)}
+.c3-kpis span{font-size:12px;font-weight:600;color:var(--ink-3)}
+.c3-kpis b{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.c3-kpis small{font-size:12px;color:var(--ink-3)}
+.c3-bar{display:block;height:6px;border-radius:3px;background:var(--neutral-bg);overflow:hidden;margin-top:4px}
+.c3-bar i{display:block;height:100%;background:var(--accent-mark);border-radius:3px}
+.c3-nav{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px}
+.c3-mini{flex:none;display:grid;grid-template-columns:auto 60px;gap:2px 8px;align-items:center;border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;min-height:var(--target);color:var(--ink)}
+.c3-mini small{grid-column:2;font-size:11.5px;color:var(--ink-3);text-align:right}
+.c3-mini[aria-pressed="true"]{border-color:var(--accent-mark);background:var(--accent-soft)}
+.c3-escena-box{position:relative;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--bg)}
+.c3-escena{height:min(62vh,520px);min-height:300px;touch-action:none}
+.c3-escena canvas{display:block}
+.c3-msg{padding:24px;color:var(--ink-3)}
+.c3-ctrl{position:absolute;left:8px;bottom:8px;display:flex;gap:6px;flex-wrap:wrap;max-width:calc(100% - 16px)}
+.c3-ctrl .btn{background:rgba(255,255,255,.92);backdrop-filter:blur(4px)}
+.c3-tip{position:absolute;max-width:300px;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 18px rgba(20,35,44,.14);display:flex;flex-direction:column;gap:2px;pointer-events:none;z-index:2}
+.c3-tip span{color:var(--ink-3)}
+.c3-ley{margin:8px 0}
+.c3-plan>summary{cursor:pointer;font-weight:600;min-height:var(--target);margin-top:8px}
+@media (max-width:900px){.c3-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:620px){
+  .c3-filtros-box>summary{display:block}
+  .c3-escena{height:56vh;min-height:260px}
+  .c3-f select{max-width:100%}
+  .c3-filtros .c3-f{flex:1 1 140px}
+  .c3-ctrl .btn{padding:4px 8px;font-size:12px}
+}
 @media (prefers-reduced-motion:no-preference){
   dialog.det[open]{animation:entra .18s ease-out}
   dialog.dx[open]{animation:sube .16s ease-out}
@@ -449,6 +485,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
       <button type="button" data-v="tendencia" aria-pressed="true">Tendencia</button>
       <button type="button" data-v="capturar" aria-pressed="false">Capturar forecast</button>
       <button type="button" data-v="metodo" aria-pressed="false">Cómo se calcula</button>
+      <button type="button" data-v="contenedor" aria-pressed="false" id="tab-c3" hidden>Contenedores 3D</button>
     </div>
     <div class="spacer"></div>
     <span class="lbl-f" id="lbl-u">Ver en</span>
@@ -513,6 +550,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
   </section>
 
   <section class="view" id="v-metodo" hidden></section>
+  <section class="view" id="v-contenedor" hidden></section>
 </main>
 
 <dialog class="det" id="det" closedby="any" aria-labelledby="det-t"></dialog>
@@ -525,7 +563,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=8e9b9260"></script>
+<script src="app.js?v=b4178033"></script>
 <script src="portal.js?v=92b83fa0"></script>
 </body>
 </html>
