@@ -412,6 +412,15 @@ details.cat .item:last-of-type{border-bottom:0}
   .c3-filtros .c3-f{flex:1 1 140px}
   .c3-ctrl .btn{padding:4px 8px;font-size:12px}
 }
+/* ---------- 0.6.0 · página más simple ---------- */
+.kpis{grid-auto-rows:1fr}                                   /* las cuatro tarjetas con la misma altura */
+.kpi .refs{margin-top:auto;padding-top:6px;border-top:1px solid var(--line)}
+.kpi .vr{min-height:1.3em}
+.hz-linea{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:baseline;font-size:13px;color:var(--ink-2)}
+.notas-bi>summary{cursor:pointer;font-weight:600;min-height:var(--target)}
+.notas-bi #v-metodo{margin-top:12px}
+.origen-linea{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;font-size:14px}
+details.mas-info>summary{cursor:pointer;font-weight:600;font-size:13.5px;min-height:var(--target);color:var(--ink-2)}
 @media (prefers-reduced-motion:no-preference){
   dialog.det[open]{animation:entra .18s ease-out}
   dialog.dx[open]{animation:sube .16s ease-out}
@@ -482,9 +491,9 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
   <div class="wrap">
     <div class="seg" id="f-dist" role="group" aria-label="Distribuidor"></div>
     <div class="seg" id="f-vista" role="group" aria-label="Vista">
-      <button type="button" data-v="tendencia" aria-pressed="true">Tendencia</button>
+      <button type="button" data-v="tendencia" aria-pressed="true">Resumen</button>
       <button type="button" data-v="capturar" aria-pressed="false">Capturar forecast</button>
-      <button type="button" data-v="metodo" aria-pressed="false">Cómo se calcula</button>
+      <button type="button" data-v="distribuidores" aria-pressed="false">Distribuidores</button>
       <button type="button" data-v="contenedor" aria-pressed="false" id="tab-c3" hidden>Contenedores 3D</button>
     </div>
     <div class="spacer"></div>
@@ -507,10 +516,6 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
       <div class="legend" id="lg-total"></div>
       <div id="ch-total-tb"></div>
     </section>
-    <section class="panel" aria-labelledby="td-t">
-      <div class="panel-h"><h2 id="td-t">Tus distribuidores</h2><span class="nota">Fuente de la demanda y tu forecast contra el algoritmo</span></div>
-      <div id="tab-dist"></div>
-    </section>
     <section class="panel" aria-labelledby="mx-t">
       <div class="panel-h"><h2 id="mx-t">Productos del mix</h2><span class="nota" id="nota-mix"></span></div>
       <div class="tools">
@@ -526,8 +531,8 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
       </div>
       <div class="lista" id="lista"></div>
     </section>
+    <details class="panel solo-bi notas-bi"><summary>Notas de cálculo (BI)</summary><div id="v-metodo"></div></details>
   </section>
-
   <section class="view" id="v-capturar" hidden>
     <section class="panel">
       <div class="barra-envio">
@@ -549,7 +554,12 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <div class="insp vacio" id="insp" aria-live="polite"><span>Toca una casilla para ver sus referencias: algoritmo, tu forecast anterior y la venta del mismo mes del año pasado.</span></div>
   </section>
 
-  <section class="view" id="v-metodo" hidden></section>
+  <section class="view" id="v-distribuidores" hidden>
+    <section class="panel" aria-labelledby="td-t">
+      <div class="panel-h"><h2 id="td-t">Tus distribuidores</h2></div>
+      <div id="tab-dist"></div>
+    </section>
+  </section>
   <section class="view" id="v-contenedor" hidden></section>
 </main>
 
@@ -563,7 +573,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=b4178033"></script>
+<script src="app.js?v=a30c3677"></script>
 <script src="portal.js?v=92b83fa0"></script>
 </body>
 </html>

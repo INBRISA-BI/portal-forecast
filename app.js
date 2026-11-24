@@ -99,6 +99,16 @@ function conTransito(p) { const x = invPartes(p); return !!x && x.tr > 0; }
 /* 0.5.0 · pedidos programados (productos[].pedidosProgramados; regla en pedidosProgramados.regla / reglasInventario.pedidosProgramados):
    se muestran aparte y NO suman al inventario ni a los días mientras su estado no cuente como inventario */
 function progDe(p) { const x = p && p.pedidosProgramados; return x ? { pz: +x.pz || 0, cajas: +x.cajas || 0, ordenes: Array.isArray(x.ordenes) ? x.ordenes : [] } : null; }
+/* 0.6.0 · venta en la moneda local del distribuidor: ventaLocal por clase {moneda, meses, total12, total3, total3ly, var3}
+   (también se acepta ventaLocal.porClase[clase] o distribuidores[clase].ventaLocal). Sin el campo no se muestra nada. */
+function ventaLocalDe(cl) { const v = D.ventaLocal, x = v ? (v.porClase ? v.porClase[cl] : v[cl]) : null, y = x || (D.distribuidores[cl] || {}).ventaLocal; return y && y.moneda && !/^(MIXTA|SIN MONEDA)$/.test(y.moneda) && ok(y.total3) ? y : null; }      // MIXTA / SIN MONEDA no traen totales
+const fMon = (v, mon) => ok(v) ? mon + ' ' + fCx(v) : '—';
+/* variación de 3 meses en moneda local: si alguno de los 3 meses no tiene reporte (mesesSinDato), no se muestra el % (sería engañoso) */
+function var3Local(vl) {
+  const sin = (vl.mesesSinDato || []).filter(m => MH.slice(-3).includes(m)).sort();
+  if (sin.length) return 'sin reporte en ' + (sin.length > 1 ? ml(sin[0]).split(' ')[0] + '–' + ml(sin[sin.length - 1]) : ml(sin[0]));
+  return ok(vl.var3) ? flecha(vl.var3) + fP(vl.var3) : '';
+}
 function diasTxt(n) { return fN(n) + (Math.round(n) === 1 ? ' día' : ' días'); }      // singular y plural
 const PROG_KAM = 'Pedidos programados: todavía no salieron; no se suman a tus días de inventario hasta que se embarquen.';      // frase para el KAM; la regla completa, solo BI
 function reglaProgramados() { const x = D.pedidosProgramados || {}, ri = D.reglasInventario || {}; return x.regla || ri.pedidosProgramados || ''; }
@@ -250,9 +260,33 @@ const uCod = c => c.pzPorU > 1 ? plural(presDe(c)) + ' de ' + fN(c.pzPorU) + ' p
 /* sell in del código en su unidad: v2 trae codigos[].sellInU (el UNI REAL del formulario); si no, el del producto en el código principal */
 function siU(p, c, m) { if (c.sellInU && c.sellInU[m] != null) return c.sellInU[m]; if (c.cod === p.principal && c.pzPorU && p.sellIn[m] != null) return p.sellIn[m] / c.pzPorU; return null; }
 
-/* ---------- inventario: umbrales del reporte de distribuidores en Power BI (15/30 riesgo, 90 sobrestock, 180 exceso) ---------- */
-const riesgo = cl => { const d = D.distribuidores[cl] || {}; if (d.umbralRiesgo) return d.umbralRiesgo; return (d.exportacion || KAMN === 'MONICA') ? 30 : 15; };
-function estInv(d, cl) { if (d == null) return null; if (invViejo(cl)) return ['', viejoTxt(fechaInv(cl))]; if (d < riesgo(cl)) return ['bad', 'Riesgo de quiebre']; if (d > 180) return ['warn', 'Exceso']; if (d > 90) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
+/* ---------- inventario: umbrales de días por distribuidor ----------
+   0.5.1: datos.umbralesInventario {general, porClase, fuente} sale de MAESTROS.xlsx › T_DOH_OBJETIVO (lo que se espera de cada
+   distribuidor). Sin ese campo, los de antes: reporte de distribuidores en Power BI (15 días riesgo; 30 en exportación; 90 sobrestock; 180 exceso).
+   umbral(null) = la selección completa: si todas las clases tienen los mismos, esos; si no, el promedio ponderado por la venta diaria en piezas
+   (el total sobrepasa el umbral justo cuando Σ inventario > Σ venta diaria × umbral de cada clase). */
+const UMB = D.umbralesInventario && D.umbralesInventario.general ? D.umbralesInventario : null;
+const UMB_K = ['riesgo', 'sobrestock', 'exceso'];
+function umbralClase(cl) {
+  if (!UMB) { const d = D.distribuidores[cl] || {}; return { riesgo: d.umbralRiesgo || ((d.exportacion || KAMN === 'MONICA') ? 30 : 15), sobrestock: 90, exceso: 180 }; }
+  const g = UMB.general, x = (UMB.porClase || {})[cl] || {}, def = { riesgo: 15, sobrestock: 90, exceso: 180 }, u = {};
+  UMB_K.forEach(k => { u[k] = ok(x[k]) ? x[k] : ok(g[k]) ? g[k] : def[k]; });
+  return u;
+}
+const umbralIgual = (a, b) => UMB_K.every(k => a[k] === b[k]);
+function umbral(cl) {
+  if (cl && cl !== 'TODOS') return umbralClase(cl);
+  const cs = D.clases.length ? D.clases : [null], us = cs.map(umbralClase);
+  if (us.every(u => umbralIgual(u, us[0]))) return us[0];
+  const w = {}; P.forEach(p => { if (p.inv && ventaDoh(p) > 0) w[p.clase] = (w[p.clase] || 0) + ventaDoh(p) / diasDoh(p); });
+  const tw = cs.reduce((a, c) => a + (w[c] || 0), 0); if (!(tw > 0)) return umbralClase(null);
+  const u = { mixto: true }; UMB_K.forEach(k => { u[k] = Math.round(cs.reduce((a, c, i) => a + (w[c] || 0) * us[i][k], 0) / tw); });
+  return u;
+}
+const riesgo = cl => umbral(cl).riesgo;
+function estInv(d, cl) { if (d == null) return null; if (invViejo(cl)) return ['', viejoTxt(fechaInv(cl))]; const u = umbral(cl); if (d < u.riesgo) return ['bad', 'Riesgo de quiebre']; if (d > u.exceso) return ['warn', 'Exceso']; if (d > u.sobrestock) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
+/* de dónde salen: con la tabla, por distribuidor (y en BI el archivo); sin ella, el reporte de Power BI como antes */
+const umbralFuente = () => UMB ? 'Umbrales que se esperan de cada distribuidor' + BI(' (' + esc(UMB.fuente || 'MAESTROS.xlsx › T_DOH_OBJETIVO') + ')') : 'Umbrales del reporte de distribuidores en Power BI';
 const pill = (cls, t) => `<span class="pill ${cls || ''}">${esc(t)}</span>`;
 function pillTend(t) { if (t == null) return pill('', 'sin base'); return pill(t >= 0.05 ? 'good' : t <= -0.1 ? 'bad' : '', flecha(t) + fP(t)); }
 function pillDias(d, cl) { if (d == null) return pill('', 'sin dato'); const e = estInv(d, cl); return pill(e[0], diasTxt(d) + ' · ' + e[1].toLowerCase()); }
@@ -358,9 +392,9 @@ function abrirExp(o) {
     h += '</section>';
   }
   /* 0.4.0: el KAM ve la fuente en palabras simples; archivos, maestros y campos van en "Ver detalle técnico" (solo BI) */
-  if (o.fuentes) h += '<section><h3>De dónde vienen los datos</h3><ul>' + [...new Set(o.fuentes.map(f => CORTO.get(f) || f))].map(f => `<li>${f}</li>`).join('') + '</ul></section>';
+  const fuentesKam = o.fuentes ? '<h4 style="margin:4px 0">De dónde vienen los datos</h4><ul>' + [...new Set(o.fuentes.map(f => CORTO.get(f) || f))].map(f => `<li>${f}</li>`).join('') + '</ul>' : '';      // 0.6.0: las fuentes van con el detalle técnico (BI)
   if (o.nota) h += `<p class="aviso info">${o.nota}</p>`;
-  const tecs = [], largas = (o.fuentes || []).filter(f => CORTO.has(f));
+  const tecs = fuentesKam ? [fuentesKam] : [], largas = (o.fuentes || []).filter(f => CORTO.has(f));
   if (largas.length) tecs.push('<ul>' + largas.map(f => `<li>${f}</li>`).join('') + '</ul>');
   if (o.bi) tecs.push(...[].concat(o.bi).filter(Boolean));
   if (o.tec) tecs.push(`<p class="tec">Campo técnico: ${o.tec}</p>`);
@@ -463,8 +497,9 @@ const EXP = {
   k_doh() {
     const sel = selDist(), r = resumen(sel), st = sel.filter(p => p.inv);
     const cl = [...new Set(st.map(p => p.clase))];
+    const uk = umbral(S.dist);      // 0.5.1: umbrales de la clase o, con todos los distribuidores, de la selección completa
     return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : diasTxt(r.doh) + '', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
-      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor en estos datos.' : `Cuántos días le alcanza al distribuidor el inventario del último corte, al ritmo de venta de los últimos 3 meses con reporte completo (si el distribuidor no reportó o reportó incompleto, ese mes se salta; con menos de 2 meses completos se usan los últimos 6). ${st.length} productos con inventario. Si el corte es anterior a ${mll(MES_DATOS)}, se muestra como dato viejo y sin marca.`,
+      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor.' : `Días que alcanza el inventario al ritmo de venta de los últimos 3 meses completos (${st.length} productos con inventario).`,
       formula: 'piezas en inventario del último corte ÷ (piezas vendidas en los meses completos ÷ (meses × 30,4 días))',
       filas: r.doh == null ? [] : (() => { const x = r.dip || { invPz: r.invPz, ventaPz: r.ventaPz, ventaDiariaPz: r.vdPz };      // 0.4.0: en piezas (diasInventarioPz), no a precio de lista
         const prog = r.progPz > 0 ? [['Pedidos programados (' + r.progOrd.size + ' ' + (r.progOrd.size === 1 ? 'orden' : 'órdenes') + '; no suman días)', fN(r.progPz) + ' pz · ' + fN(r.progCajas) + ' cajas']] : [];
@@ -472,7 +507,7 @@ const EXP = {
         return comp.concat([['Venta de los meses completos de esos productos', fN(x.ventaPz) + ' pz'], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ')).join('<br>')], ['Venta diaria', fN1(x.ventaDiariaPz) + ' pz'], ['Días de inventario', fN(r.doh), 1], ['Valor del inventario a precio de lista', fC(r.inv)]]).concat(prog); })(),
       bi: r.dip ? `<p>Días de la ${S.dist === 'TODOS' ? 'selección completa' : 'clase'} tomados de diasInventarioPz (${fN(r.dip.productos)} productos${r.dip.fecha ? ', corte ' + fechaCorta(r.dip.fecha) : ''}). ${esc((D.diasInventarioPz || {}).regla || '')}</p>` : '<p>Calculado en la página: Σ inventario pz ÷ Σ (venta pz de los meses completos ÷ días), sin precio de lista.</p>',
       fuentes: ['Reporte de inventario de cada distribuidor (inventario unificado), convertido a piezas con la misma regla de unidades que la venta', 'Cortes: ' + (cl.length ? cl.map(c => esc(c) + ' ' + fechaCorta(D.distribuidores[c].invFecha) + ' (' + D.distribuidores[c].invCortes + ' cortes)').join(' · ') : '—')],
-      nota: `${r.invTrPz > 0 && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + '. ' : ''}${r.progPz > 0 ? PROG_KAM + BI(' Regla completa: ' + esc(reglaProgramados())) + ' ' : ''}Umbrales del reporte de distribuidores en Power BI: menos de ${KAMN === 'MONICA' ? '30 días (exportación)' : '15 días'} = riesgo de quiebre; más de 90 = sobrestock; más de 180 = exceso.` };
+      nota: `${r.invTrPz > 0 && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + '. ' : ''}${r.progPz > 0 ? PROG_KAM + BI(' Regla completa: ' + esc(reglaProgramados())) + ' ' : ''}${umbralFuente()}${uk.mixto ? ' (promedio ponderado por la venta diaria de cada distribuidor)' : ''}: menos de ${fN(uk.riesgo)} días${KAMN === 'MONICA' ? ' (exportación)' : ''} = riesgo de quiebre; más de ${fN(uk.sobrestock)} = sobrestock; más de ${fN(uk.exceso)} = exceso.` };
   },
   k_sesgo() {
     const sel = selDist(), r = resumen(sel), pk = r.pk;
@@ -505,7 +540,7 @@ const EXP = {
     const sel = selDist(), r = resumen(sel);
     const fo = (D.formularios || {})[MC];
     return { t: 'Mes en curso: ' + mll(MC), v: fC(r.curso), u: OFICIAL_CURSO ? 'forecast oficial a precio de lista' : 'forecast vigente a precio de lista',
-      que: `${mll(MC)} ya está corriendo: su forecast no se cambia en esta captura. ${OFICIAL_CURSO ? 'Es el oficial: lo que quedó en tu formulario de ' + ml(MC) + '.' + BI(' Columna de ' + ml(MC) + ' de los formularios de la carpeta ' + esc(fo ? fo.carpeta : MC) + ' (la misma regla de BHIST).') : 'Es el de tu último formulario; el oficial llega con la próxima carga de datos.'} La captura es ${rango(MK)}.`,
+      que: `${esc(mll(MC).replace(/^./, c => c.toUpperCase()))} ya está en curso: su forecast no cambia en esta captura (${rango(MK)}).`,
       filas: r.conAvance ? [['Facturado en ' + ml(MC) + ' hasta el ' + fechaCorta(D.avanceHasta), fC(r.avance)], ['Avance contra el forecast del mes', r.curso ? nf.format(r.avance / r.curso * 100) + ' %' : '—', 1]] : [],
       fuentes: ['Tu formulario oficial de ' + ml(MC)].concat(r.conAvance ? ['Avance: lo que Brinova lleva facturado en el mes'] : []),
       bi: '<ul>' + [fo && fo.archivos && fo.archivos.length ? 'Formularios de la carpeta ' + esc(fo.carpeta) + ': ' + fo.archivos.map(esc).join(', ') : FUENTE_UNID].concat(r.conAvance ? ['Avance: DATA SELL IN (facturación de Brinova) del mes en curso, en piezas × precio de lista'] : []).map(x => `<li>${x}</li>`).join('') + '</ul>',
@@ -523,7 +558,7 @@ const EXP = {
   p_inv(ds) {
     const p = PID[ds.p], f = fac(p), i = p.inv;
     if (!i) return { t: 'Inventario · ' + p.nombre, v: 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'El distribuidor no ha enviado inventario de este producto.' };
-    const vd = dias(p) == null ? 0 : ventaDoh(p) / diasDoh(p), e = estInv(dias(p), p.clase);
+    const vd = dias(p) == null ? 0 : ventaDoh(p) / diasDoh(p), e = estInv(dias(p), p.clase), up = umbral(p.clase);
     const ip = invPartes(p);
     return { t: 'Inventario y días · ' + p.nombre, v: fN1(ip.tot / f) + ' ' + uNom(p), u: ip.tr ? 'distribuidor al ' + fechaCorta(i.fecha) + ' + en tránsito' : 'al ' + fechaCorta(i.fecha),
       que: ip.tr ? `Inventario de ${esc(p.clase)} en su último corte más lo que viene en camino (órdenes en tránsito que cuentan), y cuántos días le alcanza.` : `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
@@ -531,7 +566,7 @@ const EXP = {
       filas: (ip.tr ? [['En el distribuidor (corte ' + fechaCorta(i.fecha) + ')', fN(ip.dist) + ' pz'], ['En tránsito (' + ip.ordenes.length + ' ' + (ip.ordenes.length === 1 ? 'orden' : 'órdenes') + ')', fN(ip.tr) + ' pz'], ['Inventario total', fN(ip.tot) + ' pz', 1]] : [['Inventario (piezas)', fN(ip.tot) + ' pz']]).concat([['Venta de ' + mesesDoh(p.clase).map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? 'sin venta reciente' : fN(dias(p)), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]]).concat(progDe(p) ? [['Pedidos programados (no suman días)', fN(progDe(p).pz) + ' pz · ' + fN(progDe(p).cajas) + ' cajas']] : []),
       bi: tablaOrdenes(p) + (reglaTransito() ? `<p>Regla del tránsito: ${esc(reglaTransito())}</p>` : '') + (progDe(p) && reglaProgramados() ? `<p>Regla de pedidos programados: ${esc(reglaProgramados())}</p>` : ''),
       fuentes: [`Reporte de inventario de ${esc(p.clase)} (${(D.distribuidores[p.clase] || {}).invCortes || 0} cortes; último ${fechaCorta(i.fecha)}), convertido a piezas con la regla de unidades del cluster`],
-      tec: 'productos[].inv.pz / pzDistribuidor / pzTransito / pzTotal, .inv.hist, productos[].transito', nota: `${ip.tr && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + ' ' : ''}Estado: ${e ? e[1] : 'sin dato'}. Umbrales: menos de ${riesgo(p.clase)} días riesgo de quiebre, más de 90 sobrestock, más de 180 exceso.` };
+      tec: 'productos[].inv.pz / pzDistribuidor / pzTransito / pzTotal, .inv.hist, productos[].transito', nota: `${ip.tr && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + ' ' : ''}Estado: ${e ? e[1] : 'sin dato'}. Umbrales${UMB ? ' de ' + esc(p.clase) + BI(' (' + esc(UMB.fuente || 'MAESTROS.xlsx › T_DOH_OBJETIVO') + ')') : ''}: menos de ${fN(up.riesgo)} días riesgo de quiebre, más de ${fN(up.sobrestock)} sobrestock, más de ${fN(up.exceso)} exceso.` };
   },
   p_alg(ds) {
     const p = PID[ds.p], f = fac(p);
@@ -716,8 +751,7 @@ function dibujar(el) {
 }
 function leyenda(series, conBandas) {
   return series.map(s => `<span><i class="sw ${s.tipo === 'dash' ? 'dash' : s.tipo === 'col' ? 'col' : s.tipo === 'ring' ? 'dot' : s.tipo === 'lm' ? 'lm' : ''}" style="${s.tipo === 'col' ? 'background' : s.tipo === 'ring' ? 'border-color' : 'border-top-color'}:${s.color};color:${s.color}"></i>${esc(s.nombre)}</span>`).join('')
-    + (conBandas ? `<span><i class="sw band" style="background:repeating-linear-gradient(135deg,#F1F3F5 0 3px,#E2E7EB 3px 5px)"></i>${esc(ml(MC))} en curso</span><span><i class="sw band" style="background:#E8F5FC;border-color:#149CDC"></i>captura ${esc(rango(MK))}</span>`
-      + `<span><i class="sw vmk"></i>última venta real: <b>${esc(mll(D.corte))}</b></span><span><i class="sw vmk dash"></i>último mes pronosticado: <b>${esc(mll(ULT_MF))}</b></span>` : '');
+    + (conBandas ? `<span><i class="sw band" style="background:repeating-linear-gradient(135deg,#F1F3F5 0 3px,#E2E7EB 3px 5px)"></i>${esc(ml(MC))} en curso</span><span><i class="sw band" style="background:#E8F5FC;border-color:#149CDC"></i>captura ${esc(rango(MK))}</span>` : '');      // 0.6.0: "última venta real" y "último mes pronosticado" ya están rotulados dentro del gráfico
 }
 function tablaSeries(o) {
   const ms = o.meses.filter(m => o.series.some(s => ok(s.data[m]) && s.data[m] !== 0));
@@ -751,9 +785,9 @@ function spark(p) {
 /* ---------- encabezado y filtros ---------- */
 function pintarEncabezado() {
   $('#t-kam').textContent = D.kam;
-  $('#t-ciclo').innerHTML = `Ciclo <b>${esc(mll(D.ciclo))}</b> · ventas reales hasta ${esc(mll(D.corte))} · <b>${esc(ml(MC))}</b> en curso (solo lectura) · captura <b>${esc(rango(MK))}</b>`
-    + (CAP_HASTA ? ` hasta el ${esc(fechaCorta(CAP_HASTA))}` : '') + (VENCIDO ? ' · <b>captura cerrada</b>' : '') + (CAL && CAL.forzado ? ' · ciclo fijado por BI' : '')
-    + ` · ${nb('version', 'datos del ' + esc(D.generado || '—'))}`;
+  /* 0.6.0: arriba solo una línea corta; la fecha de los datos queda para BI */
+  $('#t-ciclo').innerHTML = `Captura <b>${esc(rango(MK))}</b>${CAP_HASTA ? ` · cierra <b>${esc(fechaCorta(CAP_HASTA).slice(0, 5))}</b>` : ''}${VENCIDO ? ' · <b>captura cerrada</b>' : ''}`
+    + BI(` · ${nb('version', 'datos del ' + esc(D.generado || '—'))}${CAL && CAL.forzado ? ' · ciclo fijado por BI' : ''}`);
   const n = c => P.filter(p => c === 'TODOS' || p.clase === c).length;
   $('#f-dist').innerHTML = ['TODOS'].concat(D.clases).map(c =>
     `<button type="button" data-d="${esc(c)}" aria-pressed="${S.dist === c}">${c === 'TODOS' ? 'Todos' : esc(c)}<span class="c">${n(c)}</span></button>`).join('');
@@ -773,7 +807,7 @@ const textoP = p => p.txt;
 function pasaChip(p, k) {
   if (k === 'alerta') return alertas(p).length > 0;
   if (k === 'invbajo') { const e = estInv(dias(p), p.clase); return !!e && e[0] === 'bad'; }
-  if (k === 'invalto') return dias(p) != null && dias(p) > 90;
+  if (k === 'invalto') return dias(p) != null && dias(p) > umbral(p.clase).sobrestock;      // 0.5.1: sobrestock de la clase
   if (k === 'dif') { const d = dif(p); return d != null && Math.abs(d) > 0.5; }
   if (k === 'cae') { const t = tend(p); return t != null && t <= -0.1; }
   if (k === 'editados') return p.codigos.some(c => MK.some(m => editado(c, m)));
@@ -789,49 +823,51 @@ function tiraHorizonte(desde, hasta) {
   return `<div class="tira" role="list" aria-label="Estado de cada mes">${ms.map(m => { const e = estadoMes(m), fin = m === D.corte ? 'última venta real' : m === ULT_MF ? 'último pronosticado' : '';
     return `<div class="mes-e ${e}${fin ? ' fin' : ''}${m.slice(5, 7) === '01' && m !== desde ? ' anio' : ''}" role="listitem" title="${esc(mll(m) + ': ' + EST[e] + (fin ? ' · ' + fin : ''))}"><b>${ml(m)}</b><span>${e === 'curso' ? ICO.lock : ''}${fin || EST_C[e]}</span></div>`; }).join('')}</div>`;
 }
-function pintarHorizonte() {
+function pintarHorizonte() {      // 0.6.0: una línea (mes en curso y avance) + la tira; la captura ya está en el encabezado
   const sel = P.filter(enDist), r = resumen(sel);
-  const av = r.conAvance ? `Facturado en ${ml(MC)} hasta el ${esc(fechaCorta(D.avanceHasta))}: <b>${fC(r.avance)}</b>${r.curso ? ` (${nf.format(r.avance / r.curso * 100)} % del forecast del mes)` : ''}.` : `El avance de facturación de ${ml(MC)} llega con la próxima carga de datos.`;
-  $('#hz').innerHTML = `<div class="hz-top"><h2 id="hz-t">Tu horizonte</h2>
-      <span class="small">Se capturan <b>${esc(rango(MK))}</b>${CAP_HASTA ? `, hasta el <b>${esc(fechaCorta(CAP_HASTA))}</b>` : ''}. ${esc(mll(MC).replace(/^./, c => c.toUpperCase()))} está en curso: su forecast ${OFICIAL_CURSO ? 'oficial' : 'vigente'} (${nb('k_curso', fC(r.curso))}) ya no se cambia.</span></div>
-    ${VENCIDO ? `<p class="aviso"><b>La captura del ciclo ${esc(mll(D.ciclo))} cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Todo queda de solo lectura hasta que BI cargue el ciclo siguiente. Lo que capturaste sigue guardado.</p>` : ''}
+  const av = r.conAvance ? ` · facturado al ${esc(fechaCorta(D.avanceHasta).slice(0, 5))}: <b>${fC(r.avance)}</b>${r.curso ? ` (${nf.format(r.avance / r.curso * 100)} %)` : ''}` : '';
+  $('#hz').innerHTML = `<div class="hz-linea"><span>${ICO.lock} <b>${esc(ml(MC))}</b> en curso: ${nb('k_curso', fC(r.curso))}${av}</span>${CAL && (CAL.mesesSinFormulario || []).length ? `<span class="muted">${esc(CAL.mesesSinFormulario.map(ml).join(', '))} sin formulario previo: parte de 0</span>` : ''}</div>
+    ${VENCIDO ? `<p class="aviso"><b>La captura del ciclo ${esc(mll(D.ciclo))} cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Todo queda de solo lectura hasta el siguiente ciclo; lo capturado sigue guardado.</p>` : ''}
     ${CAL && CAL.avisos && CAL.avisos.length ? `<p class="aviso">${CAL.avisos.map(esc).join(' · ')}</p>` : ''}
-    ${tiraHorizonte(addM(D.corte, -2), ULT_MF)}
-    <div class="hz-ley"><span><i style="background:#EEF2F5"></i>Cerrado · venta real</span><span><i style="background:repeating-linear-gradient(135deg,#F1F3F5 0 3px,#E2E7EB 3px 5px)"></i>En curso · no se captura</span><span><i style="background:#E8F5FC;border-color:#149CDC"></i>Captura abierta</span><span><i></i>Referencia (algoritmo)</span></div>
-    <p class="small muted">${av}${!OFICIAL_CURSO ? ' El valor de ' + ml(MC) + ' es el de tu último formulario; el oficial (BHIST) llega con la próxima carga.' : ''}${CAL && (CAL.mesesSinFormulario || []).length ? ' ' + CAL.mesesSinFormulario.map(ml).join(', ') + ' no tiene formulario previo: parte de 0 y el algoritmo es la referencia.' : ''}</p>`;
+    ${tiraHorizonte(addM(D.corte, -2), ULT_MF)}`;
 }
 
-/* ---------- indicadores ---------- */
+/* ---------- indicadores (0.6.0: las cuatro tarjetas con la misma estructura: título, cifra, una línea de comparación y 1-2 datos) ---------- */
+function tarjeta(lbl, big, vr, vrCls, refs) {
+  return `<div class="kpi"><span class="lbl">${lbl}</span><span class="big">${big}</span><span class="vr ${vrCls || 'muted'}">${vr || ''}</span>`
+    + `<span class="refs">${refs.filter(Boolean).map(([a, b, bi]) => bi ? BI(`<span>${a}</span><span>${b}</span>`) : `<span>${a}</span><span>${b}</span>`).join('')}</span></div>`;
+}
 function pintarKpis() {
   const sel = P.filter(enDist), r = resumen(sel);
   const tri = MH.slice(-3), t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null, ei = r.doh == null ? null : estInv(r.doh, S.dist === 'TODOS' ? null : S.dist);
   const tSel = tipoSel(), sinInv = !sel.some(p => p.inv);
-  const porQue = tSel === 'sell in directo' ? 'Es venta directa de Brinova' : tSel === 'sell out' ? 'Las cadenas no envían inventario a BI' : 'No hay reporte de inventario de este cliente';
+  const porQue = tSel === 'sell in directo' ? 'Venta directa de Brinova' : tSel === 'sell out' ? 'Las cadenas no envían inventario' : 'Sin reporte de inventario';
   const fechas = [...new Set(sel.filter(p => p.inv).map(p => (D.distribuidores[p.clase] || {}).invFecha).filter(Boolean))];
-  const viejas = [...new Set(sel.filter(p => p.inv).map(p => p.clase))].filter(invViejo);      // QA M3: el total también avisa si mezcla un corte viejo
-  $('#kpis').innerHTML = `
-  <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big">${nb('k_kam', fC(r.kam))}</span>
-    <span class="vr ${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span>
-    <span class="refs"><span>Algoritmo</span><span>${nb('k_alg', fC(r.alg))}</span><span>En piezas</span><span>${fN(r.pzk)} pz</span></span></div>
-  <div class="kpi"><span class="lbl">Venta real · ${esc(rango(tri))}</span><span class="big">${nb('k_venta3', fC(r.d3))}</span>
-    <span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>
-    <span class="refs"><span>Año anterior</span><span>${fC(r.d3ly)}</span></span></div>
-  <div class="kpi"><span class="lbl">Inventario en el distribuidor</span>
-    ${sinInv ? `<span class="big">No aplica</span><span class="sub">${porQue}</span>` :
-      `<span class="big">${r.doh == null ? '—' : nb('k_doh', diasTxt(r.doh) + '')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
-      ${r.invTrPz > 0 ? `<span class="refs"><span>En el distribuidor</span><span>${fN(r.invDistPz)} pz</span><span>En tránsito</span><span>${fN(r.invTrPz)} pz</span><span>Total</span><span>${fN(r.invPz)} pz</span></span>` : ''}
-      ${r.progPz > 0 ? `<span class="sub">Pedidos programados: ${fN(r.progCajas)} cajas · ${fN(r.progPz)} pz (no suman días)</span>` : ''}
-      <span class="refs"><span>Valor</span><span>${fC(r.inv)}</span><span>Corte</span><span>${fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') : '—'}</span></span>${viejas.length && S.dist === 'TODOS' ? `<span class="sub warn">Incluye ${viejas.length === 1 ? 'un corte viejo' : 'cortes viejos'}: ${esc(viejas.map(c => c + ' ' + fechaCorta(fechaInv(c))).join(', '))}</span>` : ''}`}</div>
-  <div class="kpi"><span class="lbl">Forecast anterior (KAM) · ${esc(rango(r.L12))}</span>
-    ${r.pk ? (() => { const v = pkMed(r.pk), e = aciertoEst(v, r.pk.sellInPz), sg = pkSes(r.pk);
-        return `<span class="par"><span class="big">${nb('k_sesgo', e === 'ok' ? pctN(v) : e === 'piso' ? 'Sin acierto' : 'Sin base')}</span>${ok(sg) ? `<span class="lado ${Math.abs(sg) > 0.15 ? 'warn' : 'muted'}">${flecha(sg)}${fP(sg)}<small>sesgo</small></span>` : ''}</span>
-        <span class="sub">${e === 'ok' ? 'acierto trimestral contra las compras del distribuidor' : e === 'piso' ? 'el error superó las compras del distribuidor' : 'sin compras para comparar'}</span>`; })()
-      : `<span class="big">${r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo))}</span>`}
-    <span class="vr ${r.sesgo != null && Math.abs(r.sesgo) > 0.15 ? 'warn' : 'muted'}">${r.sesgo == null ? 'Sin forecast en los últimos 12 meses' : esc(tendTxt(r.sesgo).replace(/^./, c => c.toUpperCase()))}</span>
-    ${r.pk && exclTxt(r.pk) ? `<span class="sub">${esc(exclTxt(r.pk).replace(/^./, c => c.toUpperCase()))}</span>` : ''}
-    <span class="solo-bi"><span class="refs"><span>Sesgo contra la venta</span><span>${fP(r.pk ? r.pk.sesgoReal : r.sesgo)}</span><span>Precisión (FCST ACC)</span><span>${r.prec == null ? '—' : nf.format(r.prec * 100) + ' %'}</span></span></span></div>`;
+  const viejas = [...new Set(sel.filter(p => p.inv).map(p => p.clase))].filter(invViejo);
+  const vl = S.dist !== 'TODOS' ? ventaLocalDe(S.dist) : null;      // venta en la moneda del distribuidor (cuando venga en datos.json)
+  const cls = v => v == null ? 'muted' : v >= 0 ? 'up' : 'down';
+  const k1 = tarjeta('Tu forecast · ' + esc(rango(MK)), nb('k_kam', fC(r.kam)), r.difK == null ? '' : `${flecha(r.difK)}${fP(r.difK)} contra el algoritmo`, r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted',
+    [['Algoritmo', nb('k_alg', fC(r.alg))], ['En piezas', fN(r.pzk) + ' pz']]);
+  const k2 = tarjeta('Venta real · ' + esc(rango(tri)), nb('k_venta3', fC(r.d3)), t == null ? '' : `${flecha(t)}${fP(t)} contra el año anterior`, cls(t),
+    [['Año anterior', fC(r.d3ly)], vl ? [`<span title="${esc(vl.queEs || 'Venta en la moneda del distribuidor')}">En ${esc(vl.moneda)}</span>`, esc(fMon(vl.total3, vl.moneda)) + (var3Local(vl) ? ' · ' + var3Local(vl) : '')] : null]);
+  let k3;
+  if (sinInv) k3 = tarjeta('Inventario del distribuidor', 'No aplica', esc(porQue), 'muted', [['Fuente', esc(fuenteTxt(S.dist === 'TODOS' ? (D.clases[0] || '') : S.dist))]]);
+  else {
+    const corte = fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') + (viejas.length ? ' (dato viejo)' : '') : '—';
+    const d2 = r.invTrPz > 0 ? ['En tránsito', fN(r.invTrPz) + ' pz'] : r.progPz > 0 ? ['Programado', fN(r.progCajas) + ' cajas'] : ['Valor', fC(r.inv)];
+    k3 = tarjeta('Inventario del distribuidor', r.doh == null ? '—' : nb('k_doh', diasTxt(r.doh) + ''), ei ? esc(ei[1]) : '', ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted',
+      [d2, ['Corte', corte]]);
+  }
+  let k4;
+  if (r.pk) {
+    const v = pkMed(r.pk), e = aciertoEst(v, r.pk.sellInPz), sg = pkSes(r.pk), ex = exclusiones(r.pk).flatMap(x => x.meses);
+    k4 = tarjeta('Forecast anterior · ' + esc(rango(r.L12)), nb('k_sesgo', e === 'ok' ? pctN(v) + ' acierto' : e === 'piso' ? 'Sin acierto' : 'Sin base'),
+      ok(sg) ? `sesgo ${fP(sg)} contra ${BASE_SI ? 'compras' : 'venta'}` : '', ok(sg) && Math.abs(sg) > 0.15 ? 'warn' : 'muted',
+      [ex.length ? ['Sin contar', esc([...new Set(ex)].map(ml).join(', '))] : ['Periodo', esc(rango(r.L12))], ['Precisión (FCST ACC)', r.prec == null ? '—' : nf.format(r.prec * 100) + ' %', true]]);
+  } else k4 = tarjeta('Forecast anterior · ' + esc(rango(r.L12)), r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo)), r.sesgo == null ? 'sin forecast en 12 meses' : 'sesgo contra la venta', 'muted', [['Periodo', esc(rango(r.L12))]]);
+  $('#kpis').innerHTML = k1 + k2 + k3 + k4;
   const nAl = sel.filter(p => alertas(p).length).length;
-  $('#nota-mix').textContent = `${sel.length} productos en el mix (de ${D.portafolio} del portafolio) · ${nAl} con alguna alerta${r.sinPrecio ? ' · ' + r.sinPrecio + ' sin precio de lista' : ''} · ${uNomGlobal()}`;
+  $('#nota-mix').textContent = `${sel.length} productos · ${nAl} con alerta${r.sinPrecio ? ' · ' + r.sinPrecio + ' sin precio de lista' : ''}`;
 }
 
 /* ---------- tendencia total ---------- */
@@ -846,17 +882,18 @@ function pintarTotal() {
 
 /* ---------- tus distribuidores: fuente de la demanda ---------- */
 function pintarDistribuidores() {
+  const conLocal = D.clases.some(cl => ventaLocalDe(cl));      // 0.6.0: columna en moneda local solo si el dato viene
   const filas = D.clases.map(cl => {
+    const vlc = ventaLocalDe(cl);
     const s2 = P.filter(p => p.clase === cl), r2 = resumen(s2), d = D.distribuidores[cl] || {}, e = r2.doh == null ? null : estInv(r2.doh, cl);
     const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pkSes(pk) : r2.sesgo;
     return `<tr><td class="l" data-l="Distribuidor"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
       <td class="l" data-l="Fuente de la demanda" style="white-space:normal">${pill('src', fuenteTxt(cl))}${pillsMeses(cl)}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
-      <td data-l="Productos">${s2.length}</td><td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block">+ ${fN(r2.progCajas)} cajas programadas (no suman)</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
+      <td data-l="Productos">${s2.length}</td>${conLocal ? `<td data-l="Venta 3 meses (moneda local)">${vlc ? `<span title="${esc(vlc.queEs || '')}">${esc(fMon(vlc.total3, vlc.moneda))}</span>` + (var3Local(vlc) ? `<small class="${/^sin/.test(var3Local(vlc)) ? 'muted' : vlc.var3 >= 0 ? 'up' : 'down'}" style="display:block">${var3Local(vlc)}</small>` : '') + (vlc.sellIn && ok(vlc.sellIn.razonPrecio12) ? BI(`<small class="muted" style="display:block">precio local ÷ facturado: ${nf2.format(vlc.sellIn.razonPrecio12)}×</small>`) : '') : '—'}</td>` : ''}<td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block" title="Pedidos programados: todavía no salieron; no suman días">+${fN(r2.progCajas)} cajas prog.</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
       <td data-l="Sesgo del forecast anterior" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`;
   }).join('');
   /* 0.4.0: encabezados en dos líneas y celdas que se parten, para que la tabla quepa a 1366-1400 px sin cortar la última columna */
-  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%"><col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l">Fuente de la demanda</th><th>Productos</th><th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th></tr></thead><tbody>${filas}</tbody></table></div>
-    <p class="small muted" style="margin-top:8px"><b>Sell through</b>: venta del distribuidor a sus clientes · <b>Sell out</b>: venta de las tiendas al consumidor · <b>Sell in directo</b>: lo que Brinova factura${BI('. El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran')}.</p>`;
+  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%">${conLocal ? '<col style="width:12%">' : ''}<col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l" title="Sell through: venta del distribuidor a sus clientes · Sell out: venta de las tiendas al consumidor · Sell in directo: lo que Brinova factura">Fuente de la demanda</th><th>Productos</th>${conLocal ? '<th title="Venta real de los últimos 3 meses en la moneda del distribuidor">Venta 3 meses (moneda local)</th>' : ''}<th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th></tr></thead><tbody>${filas}</tbody></table></div>${BI('<p class="small muted" style="margin-top:8px">El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>')}`;
 }
 
 /* ---------- lista (de 60 en 60) ---------- */
@@ -868,7 +905,7 @@ function pintarLista() {
     dif: (a, b) => Math.abs(dif(b) ?? 0) - Math.abs(dif(a) ?? 0),
   }[S.orden];
   const L = filtrados().sort(ord);
-  const head = `<p class="small muted" style="margin:0 0 8px">Cada producto va en su unidad: ${'<span class="upill emp">cajas de N pz</span>'} = cajas o packs (1 caja = N piezas) · <span class="upill pz">piezas</span> = piezas sueltas. Los totales de cada categoría van en colones a precio de lista.${BI(' ' + esc(catFuenteTxt()))}</p>
+  const head = `${BI('<p class="small muted" style="margin:0 0 8px">' + esc(catFuenteTxt()) + '</p>')}
     <div class="lhead"><span>Producto</span><span>12 meses + algoritmo</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">Precio lista</span></div>`;
   if (!L.length) { $('#lista').innerHTML = head + '<div class="vacio">Ningún producto cumple el filtro. Prueba con “Todos”.</div>'; return; }
   /* 0.4.0: agrupada por categoría (p.cat), plegable, con totales en colones; las categorías con más algoritmo arriba.
@@ -994,9 +1031,9 @@ function pieGrid() {
 function pintarResumenCap() {
   const sel = P.filter(enDist), r = resumen(sel);
   const nEd = sel.reduce((a, p) => a + p.codigos.filter(c => MK.some(m => editado(c, m))).length, 0);
-  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b>, en la unidad de tu formulario. Viene lleno con tu formulario vigente: cambia solo lo que quieras. Se guarda solo.</p>
-    <p class="small muted">${ICO.lock} ${esc(ml(MC))} en curso${CAP_HASTA ? ' · la captura cierra el ' + esc(fechaCorta(CAP_HASTA)) : ''} · <b>alg</b> algoritmo · <b>ant</b> forecast anterior · <b>año pas.</b> venta real del mismo mes · en meses cerrados: <b>real</b> venta real, <b>reg.</b> forecast registrado, <b>SI</b> sell in</p>
-    <p class="small muted solo-movil">En el celular es más cómodo capturar desde el detalle de cada producto: toca su nombre en la tabla.</p>
+  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b> en la unidad de tu formulario · viene de tu formulario vigente · se guarda solo.</p>
+    <p class="small muted"><b>alg</b> algoritmo · <b>ant</b> forecast anterior · <b>año pas.</b> venta del mismo mes · <b>real</b>, <b>reg.</b>, <b>SI</b>: venta real, forecast registrado y sell in de meses cerrados</p>
+    <p class="small muted solo-movil">En el celular conviene capturar desde el detalle: toca el nombre del producto.</p>
     ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
   $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Algoritmo: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
 }
@@ -1032,7 +1069,10 @@ function pintarMetodo() {
   const c = ej && ej.princ.calc, f = ej ? ej.uPz || 1 : 1, m0 = MK[0];
   const base = c ? (c.base != null ? c.base : (c.l3 + c.l6 + c.l12) / 3) : 0, un = ej ? (ej.uPz > 1 ? plural(presDe(ej.princ)) + ' de ' + fN(ej.uPz) + ' pz' : 'piezas') : '';
   const vd = filasVersion(), pk = precKam('TODOS');
-  const ries = KAMN === 'MONICA' ? 30 : 15;
+  /* 0.5.1: umbrales de días por distribuidor (T_DOH_OBJETIVO); si todas las clases tienen los mismos, una sola frase como antes */
+  const uc = D.clases.map(umbralClase), u0 = uc[0] || umbral(null), uni = uc.every(u => umbralIgual(u, u0));
+  const umbTxt = uni ? `Menos de ${fN(u0.riesgo)} días: riesgo de quiebre${u0.riesgo === 30 ? ' (exportación)' : ''}. Más de ${fN(u0.sobrestock)}: sobrestock. Más de ${fN(u0.exceso)}: exceso. ${UMB ? 'Son los días de inventario que se esperan de cada distribuidor' + BI(' (' + esc(UMB.fuente || 'MAESTROS.xlsx › T_DOH_OBJETIVO') + ')') + '.' : 'Son los mismos umbrales del reporte de distribuidores en Power BI.'}`
+    : `Cada distribuidor tiene sus umbrales, según los días de inventario que se esperan de él${BI(' (' + esc(UMB.fuente || 'MAESTROS.xlsx › T_DOH_OBJETIVO') + ')')}: ` + D.clases.map((c, i) => `<b>${esc(c)}</b>: menos de ${fN(uc[i].riesgo)} días riesgo de quiebre, más de ${fN(uc[i].sobrestock)} sobrestock, más de ${fN(uc[i].exceso)} exceso`).join('; ') + '.';
   $('#v-metodo').innerHTML = `<div class="metodo">
   <section class="panel prosa"><h3>1. De dónde salen los datos</h3>
     ${textoFuentes()}
@@ -1059,7 +1099,7 @@ function pintarMetodo() {
     <p>Todo se suma en <b>piezas</b>, la unidad estándar del motor (1 alambrina, 1 esponja). Cada código tiene sus <b>piezas por unidad de venta</b>${BI(' (T_SKU · UNIDAD DE EMPAQUE)')}: una caja de 120 pz son 120 piezas.</p>
     <p>Un producto puede tener varios códigos (unidad, caja, pack). Brinova a veces factura uno y el distribuidor reporta otro, así que se juntan por producto. Con <b>Unidad del formulario</b> ves cada producto en la presentación de tu formulario; con <b>Piezas (unidad estándar)</b>, todo en piezas.</p></section>
   <section class="panel prosa"><h3>6. Inventario y lo que todavía no considera</h3>
-    <p><b>Días de inventario</b> = (inventario del distribuidor${P.some(conTransito) ? ' + inventario en tránsito que cuenta' : ''}) ÷ su venta diaria de los últimos 3 meses.${P.some(conTransito) && reglaTransito() ? ' Tránsito que cuenta: ' + esc(reglaTransito()) + '.' : ''} Menos de ${ries} días: riesgo de quiebre${ries === 30 ? ' (exportación)' : ''}. Más de 90: sobrestock. Más de 180: exceso. Son los mismos umbrales del reporte de distribuidores en Power BI.</p>
+    <p><b>Días de inventario</b> = (inventario del distribuidor${P.some(conTransito) ? ' + inventario en tránsito que cuenta' : ''}) ÷ su venta diaria de los últimos 3 meses.${P.some(conTransito) && reglaTransito() ? ' Tránsito que cuenta: ' + esc(reglaTransito()) + '.' : ''} ${umbTxt}</p>
     <p>Todavía no considera promociones y lanzamientos (los registra el KAM)${P.some(conTransito) ? '' : ', órdenes de compra en tránsito'} ni la historia completa de inventario de los distribuidores que no lo mandan cada mes.</p>
     ${D.formFuera && D.formFuera.length ? `<p>Tu formulario también tiene ${D.formFuera.map(esc).join(', ')}, que todavía no tiene fuente de venta para el algoritmo; no aparece aquí.</p>` : ''}</section>
   </div>`;
@@ -1414,7 +1454,7 @@ function graficoProducto(p) {
 }
 function lecturaProducto(p) {
   const f = fac(p), t = tend(p), m0 = MK[0], vigN = p.codigos.reduce((s, c) => s + (vig(c, m0) || 0) * (c.pzPorU || 0), 0) / f;
-  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y el formulario vigente registra <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${fN(dias(p))} días</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses el forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses en que diste forecast).` : ''}`;
+  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y el formulario vigente registra <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${diasTxt(dias(p))}</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses el forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses con forecast).` : ''}`;
 }
 function bloqueCaptura(p, c) {
   const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null, av = c.avanceU != null ? c.avanceU : (c.cod === p.principal && c.pzPorU && p.avanceSellInPz && p.avanceSellInPz[MC] != null ? p.avanceSellInPz[MC] / c.pzPorU : null);
@@ -1438,17 +1478,25 @@ function textoCierre(p) {
   if (p.cierre === 'VENDE SIN COMPRAR') return r + ' Reporta venta sin compras en el año: inventario viejo o código cruzado. Tómalo con cuidado.';
   return r + ' No cuadra: puede ser un problema de unidad en el reporte del distribuidor. BI lo está revisando; usa tu criterio.';
 }
+/* 0.6.0: el origen de la demanda en una línea, en palabras del KAM (lo técnico queda en BI) */
+function fuenteUnaLinea(p) {
+  const cl = p.clase, t = tipoDe(cl), fu = ((D.distribuidores[cl] || {}).fuente || []).filter(x => x && x !== cl);
+  const base = t === 'sell through' ? 'Reporte de ventas de ' + (fu.length ? fu.join('/') : cl) : t === 'sell out' ? 'Escáner de las tiendas de ' + cl : 'Facturación de Brinova a ' + cl;
+  return 'Fuente: ' + base + ((mezclaDe(cl) || cl === 'PANAMA') && t !== 'sell in directo' ? ' + facturación directa a Supermercados Xtra' : '') + ', en ' + uNom(p);
+}
 function htmlOrigen(p) {
   const t = tipoDe(p.clase), dir = t === 'sell in directo', f = fac(p), L12 = MH.slice(-12), inc = INCOMP[p.clase] || [];
   const og = p.origenPz && Object.keys(p.origenPz).length ? p.origenPz : null, ogT = og ? Object.values(og).reduce((a, b) => a + b, 0) : 0;
-  return `<div class="panel-h"><h2 id="or-t">Origen de la demanda</h2><span class="nota">${esc(fuenteTxt(p.clase))} · en piezas y en ${esc(uNom(p))}</span></div>
-    <p class="prosa" style="margin-bottom:8px">${fuenteLarga(p.clase)}.</p>
+  return `<div class="panel-h"><h2 id="or-t">Origen de la demanda</h2></div>
+    <p class="origen-linea"><span>${esc(fuenteUnaLinea(p))}</span>${dir ? '' : nb('p_cierre', pill(p.cierre === 'OK' ? 'good' : 'warn', p.cierre === 'OK' ? 'cuadra con lo facturado' : p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</p>
+    ${BI('<p class="prosa small" style="margin:8px 0">' + fuenteLarga(p.clase) + '.</p>')}
+    <details class="mas-info" style="margin-top:8px"><summary>Ver demanda y sell in por mes</summary><div style="margin-top:8px">
     ${og ? `<p class="prosa" style="margin-bottom:8px">Este producto, en 12 meses: ${Object.entries(og).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<b>${esc((TIPO[t] || { c: t }).c)}</b> ${fN(v)} pz (${ogT ? nf.format(v / ogT * 100) : 0} %)`).join(' + ')}.</p>` : ''}
-    <p class="aviso info" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
+    <p class="aviso info solo-bi" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
     <div class="tw" role="region" tabindex="0" aria-label="Demanda y sell in por mes" style="max-height:340px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Demanda (pz)</th>${dir ? '' : '<th>Sell in (pz)</th><th>Sell in − demanda</th>'}<th>Demanda en ${esc(uNom(p))}</th></tr></thead><tbody>
     ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill ' + (incRevisado(p.clase, m) ? '' : 'warn') + '" title="' + esc(incTxt(p.clase, m)) + '">▲ ' + esc(incRevisado(p.clase, m) ? 'sin reporte (revisado)' : incCorto(p.clase, m)) + '</span>' : (REV[p.clase] || {})[m] ? ' <span class="pill" title="' + esc(revNota(p.clase, m)) + '">' + esc(revTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
     </tbody><tfoot><tr><th class="l" scope="row">12 meses</th><td>${fN(p.d12)}</td>${dir ? '' : `<td>${fN(p.s12)}</td><td>${fN(p.s12 - p.d12)}</td>`}<td>${nb('p_cierre', p.cierre === 'OK' ? 'cuadra' : esc(p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</td></tr></tfoot></table></div>
-    <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p>
+    <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p></div></details>
     <details class="rs sub solo-bi" id="lj-box" style="margin-top:12px"${RS.cache[p.id] ? ' open' : ''}><summary>Linaje real: del reporte a piezas <span class="pill">BI</span><span class="nota">archivo de origen, unidades del reporte, factor y piezas · se carga del rastreo al abrirlo</span></summary>
       <div id="lj-cuerpo" style="margin-top:10px">${RS.cache[p.id] ? htmlLinaje(p, RS.cache[p.id]) : ''}</div></details>`;
 }
@@ -1486,11 +1534,13 @@ function htmlAlgoritmo(p) {
 }
 function htmlInventario(p) {
   const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase), ip = invPartes(p) || { dist: 0, tr: 0, tot: 0, ordenes: [] };
-  const dd = dias(p), pos = i && dd != null ? Math.min(100, dd / 200 * 100) : null;
+  /* 0.5.1: la barra usa los umbrales de la clase (T_DOH_OBJETIVO); el tope es 200 días o más si el exceso pasa de 180 */
+  const ub = umbral(p.clase), tope = Math.max(200, Math.ceil(ub.exceso * 10 / 9 / 10) * 10), pc = v => v * 100 / tope;
+  const dd = dias(p), pos = i && dd != null ? Math.min(100, dd * 100 / tope) : null;
   return `<div class="panel-h"><h2>Inventario y precio</h2></div><div><div>
     ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(ip.dist / f)} ${esc(uNom(p))}</b> (${fN(ip.dist)} pz)${ip.tr ? `; además vienen en camino <b>${fN1(ip.tr / f)} ${esc(uNom(p))}</b> (${fN(ip.tr)} pz en ${ip.ordenes.length || 'varias'} ${ip.ordenes.length === 1 ? 'orden' : 'órdenes'}${ip.ordenes.length ? ', primera llegada ' + esc(fmtEta([...ip.ordenes].map(ordEta).filter(Boolean).sort()[0])) : ''}). Inventario total: <b>${fN(ip.tot)} pz</b>` : ''}. Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : diasTxt(dd) + '') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + (Math.round(i.dohFuente) === 1 ? ' día.' : ' días.') : ''}</p>
-      ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${rz / 2}%;background:#F6C9C6"></span><span style="width:${45 - rz / 2}%;background:#CFEBDD"></span><span style="width:45%;background:#FBE6BF"></span><span style="width:10%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
-      <div class="escala-l"><span>0</span><span>${rz} quiebre</span><span>90 sobrestock</span><span>180 exceso</span><span>200+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b>${ip.tr ? ' · los días incluyen el tránsito que cuenta' : ''}</p>` : ''}
+      ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${pc(rz)}%;background:#F6C9C6"></span><span style="width:${pc(ub.sobrestock - rz)}%;background:#CFEBDD"></span><span style="width:${pc(ub.exceso - ub.sobrestock)}%;background:#FBE6BF"></span><span style="width:${pc(tope - ub.exceso)}%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
+      <div class="escala-l"><span>0</span><span>${fN(rz)} quiebre</span><span>${fN(ub.sobrestock)} sobrestock</span><span>${fN(ub.exceso)} exceso</span><span>${fN(tope)}+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b>${ip.tr ? ' · los días incluyen el tránsito que cuenta' : ''}</p>` : ''}
       ${ip.tr ? `<div style="margin-top:8px">${tablaOrdenes(p)}${reglaTransito() ? `<p class="small muted" style="margin-top:6px">Tránsito que cuenta: ${esc(reglaTransito())}</p>` : ''}</div>` : ''}
       ${progDe(p) ? `<div style="margin-top:8px"><p class="prosa">Además hay <b>${fN(progDe(p).cajas)} cajas</b> (${fN(progDe(p).pz)} pz) en pedidos programados. ${PROG_KAM.replace('Pedidos programados: t', 'T')}</p>${tablaOrdenes(p, true)}${reglaProgramados() ? `<p class="small muted solo-bi" style="margin-top:6px">Regla completa (BI): ${esc(reglaProgramados())}</p>` : ''}</div>` : ''}
       <div class="chart" id="ch-inv" style="margin-top:10px"></div>
@@ -1509,29 +1559,29 @@ function pintarDetalle(p) {
   const otros = P.filter(x => x.grupo === p.grupo && x.id !== p.id), inv = p.inv;
   $('#det').innerHTML = `<div class="det-in">
   <div class="det-h"><div style="min-width:0"><h2 id="det-t">${esc(p.nombre)}</h2>
-    <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · código principal ${esc(p.principal)} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
+    <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
     <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}${conExportacion() ? `<button type="button" class="chip" data-c3prod="${esc(p.id)}">Ver en contenedor 3D</button>` : ''}</div>
     ${(p.sustituidos || []).length ? `<div class="small muted" style="margin-top:6px">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
     ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
     <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
   <div id="det-avisos">${avisosHtml(av)}</div>
   <div class="mini">
-    <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span></div>
+    <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>${(() => { const vl = ventaLocalDe(p.clase), vp = p.ventaLocal; return vl && vp && ok(vp.total3) ? `<span class="sub" title="${esc(vl.queEs || '')}">${esc(fMon(vp.total3, vl.moneda))} en ${esc(vl.moneda)}</span>` : ''; })()}</div>
     <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(invTot(p) / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span>${inv && conTransito(p) ? `<span class="sub">${fN1(invPartes(p).dist / f)} en el distribuidor + ${fN1(invPartes(p).tr / f)} en tránsito</span>` : ''}<span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : diasTxt(dias(p)) + ' · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
     <div class="kpi"><span class="lbl">Algoritmo · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
     <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el algoritmo · ${fC(kamValM(p, MK))}</span></div>
   </div>
+  <p class="lectura" id="det-lectura">${lecturaProducto(p)}</p>
+  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2><span class="nota">En la unidad de cada código · ${esc(ml(MC))} en curso, no se cambia · se guarda solo</span></div>
+    ${p.cap.map(c => bloqueCaptura(p, c)).join('') || '<p class="prosa">Este producto no tiene un código para capturar en este distribuidor.</p>'}
+    <label class="mes" style="margin-top:10px">Comentario (motivo si te separas del algoritmo: promociones, quiebres)<textarea id="nota-${sid(notaId)}" data-nota="${esc(notaId)}">${esc(nota)}</textarea></label>
+    <p class="prosa" style="margin-top:8px" id="det-afecta">${afecta(p)}</p></section>
   <section class="panel"><div class="panel-h"><h2>Mes a mes</h2><span class="nota">${esc(uNom(p))}</span>
     <span class="der"><button type="button" class="chip" id="b-desde2" aria-pressed="${S.desde === '2024-01'}">Desde 2024</button><button type="button" class="chip" data-tabla="ch-prod" aria-pressed="false">Ver tabla</button></span></div>
-    <div class="chart" id="ch-prod"></div><div class="legend" id="lg-prod"></div><div id="ch-prod-tb"></div>
-    <p class="lectura" style="margin-top:10px" id="det-lectura">${lecturaProducto(p)}</p></section>
-  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2><span class="nota">En la unidad de cada código. ${esc(ml(MC))} está en curso y no se cambia. Se guarda solo.</span></div>
-    ${p.cap.map(c => bloqueCaptura(p, c)).join('') || '<p class="prosa">Este producto no tiene un código para capturar en este distribuidor.</p>'}
-    <label class="mes" style="margin-top:10px">Comentario (por qué te separas del algoritmo, promociones, quiebres)<textarea id="nota-${sid(notaId)}" data-nota="${esc(notaId)}">${esc(nota)}</textarea></label>
-    <p class="prosa" style="margin-top:8px" id="det-afecta">${afecta(p)}</p></section>
-  <section class="panel" aria-labelledby="or-t">${htmlOrigen(p)}</section>
-  <section class="panel">${htmlAlgoritmo(p)}</section>
+    <div class="chart" id="ch-prod"></div><div class="legend" id="lg-prod"></div><div id="ch-prod-tb"></div></section>
   <section class="panel">${htmlInventario(p)}</section>
+  <section class="panel" aria-labelledby="or-t">${htmlOrigen(p)}</section>
+  <section class="panel"><details class="mas-info"><summary>Cómo se calculó el algoritmo</summary><div style="margin-top:10px">${htmlAlgoritmo(p)}</div></details></section>
   <section class="panel"><details class="rs" id="rs-box" data-p="${esc(p.id)}"><summary><span id="rs-tit">${esc(rsTitulo(p))}</span><span class="nota">${esc(rsNota(p))}</span></summary><div id="rs-cuerpo" style="margin-top:10px"></div></details></section>
   </div>`;
   RS.p = p.id; RS.m = null; RS.path = []; RS.dim = null; RS.lim = 200;
@@ -1544,7 +1594,7 @@ function pintarDetalle(p) {
 function afecta(p) {
   const kv = kamValM(p, MK), av = pv(p, algPz6(p));
   if (!av && !kv) return 'Sin forecast en estos meses.';
-  return `Tu número vale <b>${fC(kv)}</b> a precio de lista en ${esc(rango(MK))}; el algoritmo, <b>${fC(av)}</b>. Es lo que Brinova planea producir y facturar para este distribuidor.`;
+  return `Valor de tu forecast: <b>${fC(kv)}</b> a precio de lista en ${esc(rango(MK))} (algoritmo: ${fC(av)}).`;
 }
 function refrescarDetalle(p) {
   const f = fac(p), d = dif(p);
@@ -1756,7 +1806,8 @@ let tRef = null;
 function refrescarResumen() {        // repinta solo lo visible
   clearTimeout(tRef);
   tRef = setTimeout(() => {
-    if (S.vista === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarDistribuidores(); pintarLista(); }
+    if (S.vista === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarLista(); }
+    if (S.vista === 'distribuidores') pintarDistribuidores();
     if (S.vista === 'capturar') { filasGrid.forEach(totFila); pieGrid(); pintarResumenCap(); prodGrid.forEach(refrescarGrupo); }
     if (S.abierto) refrescarDetalle(PID[S.abierto]);
   }, 250);
@@ -1775,14 +1826,17 @@ function pintarEnvio() {
 
 /* ---------- eventos ---------- */
 function vista(v) {
+  if (v === 'metodo') { v = 'tendencia'; const nb2 = $('.notas-bi'); if (nb2) nb2.open = true; }      // 0.6.0: la pestaña "Cómo se calcula" se fue; sus notas quedan al final del resumen (BI)
   S.vista = v;
   document.querySelectorAll('#f-vista button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
-  $('#v-tendencia').hidden = v !== 'tendencia'; $('#v-capturar').hidden = v !== 'capturar'; $('#v-metodo').hidden = v !== 'metodo';
+  $('#v-tendencia').hidden = v !== 'tendencia'; $('#v-capturar').hidden = v !== 'capturar';
+  const vd = $('#v-distribuidores'); if (vd) vd.hidden = v !== 'distribuidores';
   const vc = $('#v-contenedor'); if (vc) vc.hidden = v !== 'contenedor';
   if (v !== 'contenedor' && C3.escena) { C3.escena.destruir(); C3.escena = null; }      // libera la GPU al salir de la vista 3D
   if (v === 'contenedor') pintarContenedor();
   if (v === 'capturar') pintarGrid();
-  if (v === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarDistribuidores(); pintarLista(); }
+  if (v === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarLista(); }
+  if (v === 'distribuidores') pintarDistribuidores();
 }
 function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(el._t); el._t = setTimeout(() => { el.hidden = true; }, 2600); }
 let tq = null;
