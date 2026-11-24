@@ -58,7 +58,27 @@ const INCOMP = D.mesesIncompletos || {};
 const incompletosDe = cls => [...new Set(cls.flatMap(c => INCOMP[c] || []))];
 function incTxt(cl, m) {      // detalle del mes incompleto (v2: mesesIncompletosDetalle)
   const x = ((D.mesesIncompletosDetalle || {})[cl] || {})[m]; if (!x) return 'mes incompleto';
+  if (x.revisado) return 'sin reporte (revisado): ' + (x.nota || 'el reporte no va a llegar');
   return (x.estado || 'incompleto') + (x.motivo === 'dias' && x.dias != null ? `: ${x.dias} días con factura (lo normal son ${x.diasMediana})` : x.razon != null ? `: ${nf.format(x.razon * 100)} % de lo normal (${fN(x.pz)} pz contra una mediana de ${fN(x.mediana12)})` : '');
+}
+/* 2026-11-24: meses que BI revisó (REVISION_MESES.xlsx). Venta baja real = no es dato faltante: etiqueta gris y sí cuenta en los cálculos. */
+const REV = D.mesesRevisados || {}, ECL = D.estadoClases || {};
+const incRevisado = (cl, m) => !!(((D.mesesIncompletosDetalle || {})[cl] || {})[m] || {}).revisado;
+const revTxt = (cl, m) => 'venta baja real (revisado)';
+const revNota = (cl, m) => ((REV[cl] || {})[m] || {}).nota || '';
+function pillsMeses(cl) {      // etiquetas de meses de una clase: amarillo = falta revisar · gris = revisado
+  const inc = INCOMP[cl] || [], rev = Object.keys(REV[cl] || {}).sort();
+  let h = '';
+  if (ECL[cl]) h += ' ' + `<span class="pill" title="${esc(ECL[cl].nota || '')}">${esc(ECL[cl].estado === 'en transicion' ? 'Distribuidor en transición' : ECL[cl].estado)}</span>`;
+  h += inc.map(m => ` <span class="pill ${incRevisado(cl, m) ? '' : 'warn'}" title="${esc(incTxt(cl, m))}">${esc(ml(m) + ' ' + (incRevisado(cl, m) ? 'sin reporte (revisado)' : incTxt(cl, m)))}</span>`).join('');
+  const grupos = [];                                 // meses seguidos con el mismo motivo van en una sola etiqueta (p. ej. jul 25 – jun 26)
+  rev.forEach(m => {
+    const g = grupos[grupos.length - 1], ant = g && g.hasta, nota = revNota(cl, m);
+    const sig = ant && (() => { const [a, b] = ant.split('-').map(Number); return b === 12 ? `${a + 1}-01` : `${a}-${String(b + 1).padStart(2, '0')}`; })();
+    if (g && sig === m && g.nota === nota) g.hasta = m; else grupos.push({ desde: m, hasta: m, nota });
+  });
+  h += grupos.map(g => ` <span class="pill" title="${esc(g.nota)}">${esc((g.desde === g.hasta ? ml(g.desde) : ml(g.desde) + ' – ' + ml(g.hasta)) + ' ' + revTxt(cl, g.desde))}</span>`).join('');
+  return h;
 }
 
 const LINES = {}, PID = {};
@@ -615,7 +635,7 @@ function pintarDistribuidores() {
     const s2 = P.filter(p => p.clase === cl), r2 = resumen(s2), d = D.distribuidores[cl] || {}, e = r2.doh == null ? null : estInv(r2.doh, cl);
     const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pk.sesgoReal : r2.sesgo;
     return `<tr><td class="l"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
-      <td class="l" style="white-space:normal">${pill('src', fuenteTxt(cl))}${inc.map(m => ' <span class="pill warn" title="' + esc(incTxt(cl, m)) + '">' + esc(ml(m) + ' ' + incTxt(cl, m)) + '</span>').join('')}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
+      <td class="l" style="white-space:normal">${pill('src', fuenteTxt(cl))}${pillsMeses(cl)}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
       <td>${s2.length}</td><td>${r2.doh == null ? '—' : fN(r2.doh) + (e ? ' · ' + (e[0] ? esc(e[1].toLowerCase()) : `<span class="muted">${esc(e[1])}</span>`) : '')}${d.invFecha ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
       <td class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk && pk.accReal != null ? `<small class="muted" style="display:block">precisión ${nf.format(Math.max(0, pk.accReal) * 100)} %</small>` : ''}</td></tr>`;
   }).join('');
@@ -842,7 +862,7 @@ function htmlOrigen(p) {
     ${og ? `<p class="prosa" style="margin-bottom:8px">Este producto, en 12 meses: ${Object.entries(og).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<b>${esc((TIPO[t] || { c: t }).c)}</b> ${fN(v)} pz (${ogT ? nf.format(v / ogT * 100) : 0} %)`).join(' + ')}.</p>` : ''}
     <p class="aviso info" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
     <div class="tw" role="region" tabindex="0" aria-label="Demanda y sell in por mes" style="max-height:340px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Demanda (pz)</th>${dir ? '' : '<th>Sell in (pz)</th><th>Sell in − demanda</th>'}<th>Demanda en ${esc(uNom(p))}</th></tr></thead><tbody>
-    ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill warn">▲ ' + esc(incTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
+    ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill ' + (incRevisado(p.clase, m) ? '' : 'warn') + '">▲ ' + esc(incTxt(p.clase, m)) + '</span>' : (REV[p.clase] || {})[m] ? ' <span class="pill" title="' + esc(revNota(p.clase, m)) + '">' + esc(revTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
     </tbody><tfoot><tr><th class="l" scope="row">12 meses</th><td>${fN(p.d12)}</td>${dir ? '' : `<td>${fN(p.s12)}</td><td>${fN(p.s12 - p.d12)}</td>`}<td>${nb('p_cierre', p.cierre === 'OK' ? 'cuadra' : esc(p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</td></tr></tfoot></table></div>
     <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p>
     <details class="rs sub" id="lj-box" style="margin-top:12px"${RS.cache[p.id] ? ' open' : ''}><summary>Linaje real: del reporte a piezas<span class="nota">archivo de origen, unidades del reporte, factor y piezas · se carga del rastreo al abrirlo</span></summary>
