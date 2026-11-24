@@ -234,6 +234,10 @@ dialog.det[open]{display:flex;flex-direction:column}
 .cod{border-top:1px solid var(--line);padding-top:10px;margin-top:10px;display:flex;flex-direction:column;gap:8px}
 .cod:first-of-type{border-top:0;margin-top:0;padding-top:0}
 .cod-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.cod-nom b{display:block;font-size:14px}   /* 0.4.1: nombre de Brinova primero, el del distribuidor debajo */
+.dnom{display:block;color:var(--ink-3);font-size:12.5px;font-weight:400}
+.dnom.corto{font-size:12px}
+.dnom .mas{display:inline-block;border:1px solid var(--line-2);border-radius:999px;padding:0 6px;font-size:11.5px;color:var(--ink-2);cursor:help}
 .prosa{color:var(--ink-2);max-width:78ch}
 .prosa p{margin:0 0 10px}
 .dos{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
@@ -521,7 +525,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=82e06f50"></script>
+<script src="app.js?v=8e9b9260"></script>
 <script src="portal.js?v=92b83fa0"></script>
 </body>
 </html>

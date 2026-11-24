@@ -200,6 +200,20 @@ const esEmpaque = p => S.unidad !== 'pz' && p.uPz > 1;
 const uPill = p => `<span class="upill ${esEmpaque(p) ? 'emp' : 'pz'}" title="${esc(esEmpaque(p) ? 'Cantidades en ' + uNom(p) + ': 1 = ' + fN(p.uPz) + ' piezas' : 'Cantidades en piezas sueltas')}">${esc(uNom(p))}</span>`;
 const uNomGlobal = () => S.unidad === 'pz' ? 'cantidades en piezas (unidad estándar)' : 'cantidades en la unidad de tu formulario';
 const cNom = c => presTxt(c) + (c.pzPorU > 1 ? ' de ' + fN(c.pzPorU) + ' pz' : (c.pzPorU === 1 ? ' (1 pz)' : ' (sin factor de piezas)'));
+/* 0.4.1 (pedido del usuario): primero el nombre de Brinova y debajo cómo lo llama el distribuidor (o la cadena).
+   codigos[].descBrinova (T_SKU; si no, BFCST) y codigos[].descDistribuidor [{cod, nombre}]; sin ellos, la descripción de antes. */
+const descB = c => c.descBrinova || c.desc || c.cod;
+function quienLlama(cl) {
+  if (tipoDe(cl) === 'sell out') return cl;
+  const fu = ((D.distribuidores[cl] || {}).fuente || []).filter(x => x && x !== cl);
+  return fu.length ? fu.join('/') : cl;
+}
+function nombreDist(p, c, corto) {
+  const xs = c.descDistribuidor || []; if (!xs.length) return '';
+  const so = tipoDe(p.clase) === 'sell out', et = x => esc(x.nombre) + (x.cod ? ' (' + (so ? 'código de barras ' : 'cód. ') + esc(x.cod) + ')' : '');
+  const mas = xs.length - 1, tt = xs.slice(1).map(x => x.nombre + (x.cod ? ' (' + x.cod + ')' : '')).join(' · ');
+  return `<span class="dnom${corto ? ' corto' : ''}">En ${esc(quienLlama(p.clase))}: ${et(xs[0])}${mas ? ` <span class="mas" title="${esc(tt)}">+${mas}</span>` : ''}</span>`;
+}
 const uCod = c => c.pzPorU > 1 ? plural(presDe(c)) + ' de ' + fN(c.pzPorU) + ' pz' : 'piezas (1 pz)';
 /* sell in del código en su unidad: v2 trae codigos[].sellInU (el UNI REAL del formulario); si no, el del producto en el código principal */
 function siU(p, c, m) { if (c.sellInU && c.sellInU[m] != null) return c.sellInU[m]; if (c.cod === p.principal && c.pzPorU && p.sellIn[m] != null) return p.sellIn[m] / c.pzPorU; return null; }
@@ -511,7 +525,7 @@ const EXP = {
     const p = PID[ds.p];
     return { t: 'Unidades de ' + p.nombre, v: '1 ' + String(presDe(p.princ) || 'unidad').toLowerCase() + ' = ' + fN(p.uPz) + ' pz', u: 'código principal ' + p.principal,
       que: 'Un producto puede tener varios códigos (unidad, caja, pack). Brinova factura uno y el distribuidor puede reportar otro; por eso todo se suma en <b>piezas</b> (la unidad estándar: 1 alambrina, 1 esponja) y se muestra en la presentación de tu formulario.',
-      filas: p.codigos.map(c => [esc(c.cod) + ' · ' + esc(c.desc), esc(cNom(c)) + (c.cod === p.principal ? ' · principal' : '') + (c.captura ? ' · se captura' : '') + (c.pzBfcst != null && c.pzPorU && c.pzBfcst !== c.pzPorU ? ' · ⚠ Power BI usa ' + fN(c.pzBfcst) + ' pz' : '')]),
+      filas: p.codigos.map(c => ['<b>' + esc(descB(c)) + '</b>' + nombreDist(p, c) + '<br><span class="small muted">' + esc(c.cod) + '</span>', esc(cNom(c)) + (c.cod === p.principal ? ' · principal' : '') + (c.captura ? ' · se captura' : '') + (c.pzBfcst != null && c.pzPorU && c.pzBfcst !== c.pzPorU ? ' · ⚠ Power BI usa ' + fN(c.pzBfcst) + ' pz' : '')]),
       fuentes: ['Piezas por caja o pack de cada código: el maestro de productos de Brinova', 'Presentación: la de tu formulario', 'Código principal = el que más usas en tu formulario o en compras'],
       bi: '<ul><li>Piezas por unidad de venta de cada código: T_SKU (UNIDAD DE EMPAQUE)</li><li>Presentación: la de tu formulario (TIPO de BFCST) o T_SKU (NIVEL_PRESENTACION)</li></ul>'
         + (p.codigos.some(c => c.pzBfcst != null && c.pzPorU && c.pzBfcst !== c.pzPorU) ? '<p class="aviso info">Hay un código con un factor distinto en Power BI (BFCST.UESTANDAR) que en este portal (T_SKU). BI lo está revisando; mientras tanto el portal usa T_SKU.</p>' : ''),
@@ -910,7 +924,7 @@ function pintarGrid() {
     p.cap.forEach(c => {
       filasGrid.push(c.id);
       const pr = precioU(p, c);
-      h += `<tr><th class="stk codr" scope="row"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}<small>${esc(c.desc)}</small><small>En ${esc(uCod(c))} · sell in 12M ${fN(c.u12)}</small></th><td>${pr != null ? fC2(pr) : pill('bad', 'sin precio')}</td>`;
+      h += `<tr><th class="stk codr" scope="row"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}<small>${esc(descB(c))}</small><small>En ${esc(uCod(c))} · sell in 12M ${fN(c.u12)}</small></th><td>${pr != null ? fC2(pr) : pill('bad', 'sin precio')}</td>`;
       ms.forEach(m => { h += celdaCap(p, c, m); });
       h += `<td class="num" id="t-${esc(c.id)}"></td><td class="num" id="v-${esc(c.id)}"></td></tr>`;
     });
@@ -1036,7 +1050,7 @@ function lecturaProducto(p) {
 }
 function bloqueCaptura(p, c) {
   const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null, av = c.avanceU != null ? c.avanceU : (c.cod === p.principal && c.pzPorU && p.avanceSellInPz && p.avanceSellInPz[MC] != null ? p.avanceSellInPz[MC] / c.pzPorU : null);
-  let h = `<div class="cod"><div class="cod-h"><b>${esc(c.cod)}</b><span>${esc(cNom(c))}</span>
+  let h = `<div class="cod"><div class="cod-nom"><b>${esc(descB(c))}</b>${nombreDist(p, c)}</div><div class="cod-h"><span class="muted">${esc(c.cod)}</span><span>${esc(cNom(c))}</span>
     <span class="pill kam">lista ${pr != null ? fC2(pr) : 'sin precio'}</span>
     ${c.precioFact ? `<span class="pill kam">facturado ${fC2(c.precioFact)}${desc != null ? ' · ' + nf.format(desc * 100) + ' % desc.' : ''}</span>` : ''}</div>
     <p class="small muted">${ICO.lock} ${ml(MC)} en curso: <b>${fN(vig(c, MC))}</b> ${esc(plural(presDe(c)))} (${OFICIAL_CURSO ? 'oficial' : 'vigente'}, no se cambia)${av != null ? ' · facturado al ' + esc(fechaCorta(D.avanceHasta)) + ': ' + fN1(av) : ''} · sell in 12 meses: ${fN(c.u12)} (${fN1((c.u12 || 0) / 12)} al mes)</p>
@@ -1083,7 +1097,7 @@ function htmlAlgoritmo(p) {
       return { a, b, n: vs.length, s, prom: fu.prom, idx: !vs.length || s <= 0 || !(fu.prom > 0) ? 1 : Math.min(2, Math.max(0.4, (s / vs.length) / fu.prom)) }; };
     const bar = (lb, v, cls) => `<div class="barra"><span>${lb}</span><span><span class="b ${cls || ''}" style="width:${(v / mx * 100).toFixed(1)}%"></span></span><span class="v">${fN1(v / f)}</span></div>`;
     const div = n => it ? n + ' meses (calendario)' : `meses con venta (${n === 3 ? k.mv3 : n === 6 ? k.mv6 : k.mv12} de ${n})`;
-    return `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px"><p style="margin-bottom:10px"><b>${esc(c.cod)}</b> <span class="muted">${esc(c.desc)}</span> ${obs ? pill('warn', 'Sin venta ' + fN(k.sinVenta) + ' meses → 0') : pill('good', 'Activo')} ${it ? pill('acc', 'Compra pocas veces') : ''}</p>
+    return `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px"><p style="margin-bottom:10px"><b>${esc(descB(c))}</b> <span class="muted">${esc(c.cod)}</span> ${obs ? pill('warn', 'Sin venta ' + fN(k.sinVenta) + ' meses → 0') : pill('good', 'Activo')} ${it ? pill('acc', 'Compra pocas veces') : ''}</p>
     ${obs ? `<p class="aviso" style="margin-bottom:10px">Lleva ${fN(k.sinVenta)} meses sin venta (última: ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). La regla deja el algoritmo en 0 hasta que vuelva a venderse${MK.some(m => kamU(c, m) > 0) ? ', pero tu forecast tiene unidades: revisa si sigue vigente' : ''}.</p>` : ''}
     <div class="pasos3">
       <div class="p3"><h4><span class="nro">1</span>Base mensual</h4><p class="small muted">${it ? `Vendió en ${k.mv12} de los últimos 12 meses (compra pocas veces): cada promedio se divide entre 3, 6 y 12 meses de calendario, contando los meses sin venta.` : 'Promedio de 3, 6 y 12 meses, dividido entre los meses con venta de cada ventana.'}</p>
@@ -1114,7 +1128,7 @@ function htmlInventario(p) {
       : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
   </div><div style="margin-top:14px">
     <div class="tw" role="region" tabindex="0" aria-label="Precio por código"><table class="tbl"><caption style="padding:8px 10px">Precio por código</caption><thead><tr><th class="l">Código</th><th class="l">Presentación</th><th>Lista</th><th>Facturado (6M)</th><th>Desc.</th><th>Por pieza</th></tr></thead><tbody>
-    ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</td><td class="l">${esc(cNom(c))}</td><td title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td>${c.precioFact ? fC2(c.precioFact) : '—'}</td><td>${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td>${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
+    ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l" style="white-space:normal;min-width:220px"><b>${esc(descB(c))}</b>${nombreDist(p, c, true)}<span class="small muted" style="display:block">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</span></td><td class="l">${esc(cNom(c))}</td><td title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td>${c.precioFact ? fC2(c.precioFact) : '—'}</td><td>${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td>${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
     </tbody></table></div>
     <p class="small muted" style="margin-top:8px">El valor de tu forecast es <b>unidades × precio de lista</b> del distribuidor. “Facturado (6M)” = colones facturados ÷ unidades facturadas en los últimos 6 meses${BI(' (DATA SELL IN). Precio de lista: ' + esc([...new Set(p.codigos.map(c => c.precioFuente).filter(Boolean))].join(' / ') || 'FCST_ALGORITMO'))}.${p.codigos.some(c => c.precio == null && precioU(p, c) != null) ? ' * = estimado con el precio por pieza del código principal.' : ''}</p>
   </div></div>`;
@@ -1127,6 +1141,7 @@ function pintarDetalle(p) {
   <div class="det-h"><div style="min-width:0"><h2 id="det-t">${esc(p.nombre)}</h2>
     <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · código principal ${esc(p.principal)} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
     <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}</div>
+    ${(p.sustituidos || []).length ? `<div class="small muted" style="margin-top:6px">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
     ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
     <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
   <div id="det-avisos">${avisosHtml(av)}</div>
