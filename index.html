@@ -263,10 +263,12 @@ textarea{width:100%;min-height:56px;border:1px solid var(--line-2);border-radius
 .aviso{background:var(--warn-bg);color:#5E3B00;border-radius:8px;padding:8px 12px;font-size:13px}
 .aviso.info{background:var(--accent-soft);color:#0B4A6B}
 .aviso.bad{background:var(--bad-bg);color:#7A1A12}
+.aviso.nota{background:var(--neutral-bg);color:var(--ink-2)}   /* aviso suave: informativo, sin color de alarma */
 .aviso b{font-weight:600}
 .tec{font-size:12px;color:var(--ink-3);background:var(--surface-2);border-radius:6px;padding:8px 10px}
 details.rs>summary{cursor:pointer;font-weight:600;font-size:16px;list-style-position:outside;min-height:var(--target)}
 details.rs>summary .nota{font-weight:400;font-size:12.5px;color:var(--ink-3);margin-left:8px}
+details.rs.sub>summary{font-size:14px}   /* linaje real, dentro de "Origen de la demanda" */
 .ruta{display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:13px}
 .ruta button{border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:3px 10px;cursor:pointer;min-height:var(--target)}
 .ruta .sep{color:var(--ink-3)}
@@ -458,8 +460,8 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=54a39f80"></script>
-<script src="portal.js?v=8a466440"></script>
+<script src="app.js?v=436a4622"></script>
+<script src="portal.js?v=92b83fa0"></script>
 </body>
 </html>
 

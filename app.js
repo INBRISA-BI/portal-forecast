@@ -1,7 +1,7 @@
 /* Generado por herramientas/construir_web.py desde 07 MOTOR FCST/portal. No editar aquí. */
 window.iniciarPortal = function (DATOS) {
 'use strict';
-/* Portal de forecast KAM · v0.30 (23/11/2026).
+/* Portal de forecast KAM · v0.31 (23/11/2026; 0.3.0 publicada el mismo día).
    Funciona con datos.json actual (v1) y con el v2 de REV\10_CONTRATO_DATOS_v2.md: todo campo nuevo es opcional y tiene respaldo.
    Regla del horizonte (informe 01): mes en curso = solo lectura con el valor oficial; se capturan los 5 meses siguientes. */
 /* ---------- datos y formatos ---------- */
@@ -132,7 +132,15 @@ const algPz = (p, ms) => sum(p.alg, ms);
 const algPz6 = p => algPz(p, MK);                                                // nombre histórico: ahora suma la ventana real (MK)
 const kamPz6 = p => kamPzM(p, MK);
 const tend = p => p.d3ly > 0 ? p.d3 / p.d3ly - 1 : null;
-const dias = p => p.inv ? p.inv.doh : null;
+/* días de inventario (auditoría 23/11): venta de los últimos 3 meses con reporte completo de la clase (sin mesesIncompletos);
+   si quedan menos de 2, los últimos 6 completos. La página recalcula con esto; productos[].inv.doh del generador queda de referencia. */
+const _MDOH = {};
+function mesesDoh(cl) { if (_MDOH[cl]) return _MDOH[cl]; const inc = INCOMP[cl] || []; let ms = MH.slice(-3).filter(m => !inc.includes(m)); if (ms.length < 2) ms = MH.slice(-6).filter(m => !inc.includes(m)); return (_MDOH[cl] = ms); }
+const ventaDoh = p => sum(p.real, mesesDoh(p.clase));
+const diasDoh = p => mesesDoh(p.clase).length * 30.4;
+const dias = p => { if (!p.inv) return null; const v = ventaDoh(p); return v > 0 ? Math.round(p.inv.pz / (v / diasDoh(p))) : null; };
+/* foto vieja: el último corte tiene más de 60 días antes del cierre del mes de corte → se muestra en gris y sin marca */
+function invViejo(cl) { const f = cl && (D.distribuidores[cl] || {}).invFecha; if (!f) return false; return (new Date(addM(D.corte, 1) + '-01T00:00:00') - new Date(f + 'T00:00:00')) / 864e5 - 1 > 60; }
 function dif(p) { const a = algPz6(p), k = kamPz6(p); if (a <= 0) return null; return k / a - 1; }
 const fac = p => S.unidad === 'pz' ? 1 : (p.uPz || 1);
 function plural(pres) { const pr = String(pres || 'caja').toLowerCase(); return ({ caja: 'cajas', unidad: 'unidades', 'pack oferta': 'packs', bulto: 'bultos', 'bulto/caja': 'cajas', display: 'displays', kg: 'kg' })[pr] || pr; }
@@ -150,7 +158,7 @@ function siU(p, c, m) { if (c.sellInU && c.sellInU[m] != null) return c.sellInU[
 
 /* ---------- inventario: umbrales del reporte de distribuidores en Power BI (15/30 riesgo, 90 sobrestock, 180 exceso) ---------- */
 const riesgo = cl => { const d = D.distribuidores[cl] || {}; if (d.umbralRiesgo) return d.umbralRiesgo; return (d.exportacion || KAMN === 'MONICA') ? 30 : 15; };
-function estInv(d, cl) { if (d == null) return null; if (d < riesgo(cl)) return ['bad', 'Riesgo de quiebre']; if (d > 180) return ['warn', 'Exceso']; if (d > 90) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
+function estInv(d, cl) { if (d == null) return null; if (invViejo(cl)) return ['', 'Dato viejo (corte ' + fechaCorta(D.distribuidores[cl].invFecha) + ')']; if (d < riesgo(cl)) return ['bad', 'Riesgo de quiebre']; if (d > 180) return ['warn', 'Exceso']; if (d > 90) return ['warn', 'Sobrestock']; return ['good', 'Sano']; }
 const pill = (cls, t) => `<span class="pill ${cls || ''}">${esc(t)}</span>`;
 function pillTend(t) { if (t == null) return pill('', 'sin base'); return pill(t >= 0.05 ? 'good' : t <= -0.1 ? 'bad' : '', flecha(t) + fP(t)); }
 function pillDias(d, cl) { if (d == null) return pill('', 'sin dato'); const e = estInv(d, cl); return pill(e[0], fN(d) + ' días · ' + e[1].toLowerCase()); }
@@ -161,31 +169,47 @@ const inter = k => k && (k.inter != null ? !!k.inter : k.mv12 <= ((D.algoritmo |
 function alertas(p) {
   const a = [];
   if (p.cierre !== 'OK') a.push(['bad', p.cierre === 'REVISAR' ? 'Dato a revisar' : p.cierre.charAt(0) + p.cierre.slice(1).toLowerCase()]);
-  const e = estInv(dias(p), p.clase); if (e && e[0] !== 'good') a.push([e[0] === 'bad' ? 'bad' : 'warn', e[1]]);
+  const e = estInv(dias(p), p.clase); if (e && e[0] && e[0] !== 'good') a.push([e[0] === 'bad' ? 'bad' : 'warn', e[1]]);
   const df = dif(p);
   if (df != null && Math.abs(df) > 0.5 && pv(p, algPz6(p) + kamPz6(p)) > 300000) a.push(['warn', 'Tu forecast muy ' + (df > 0 ? 'arriba' : 'abajo') + ' del algoritmo']);
   if (p.precioPz == null) a.push(['bad', 'Sin precio']);
   return a;
 }
-/* informe 03 §G y contrato v2 (reglasAvisos): por código, tu número de un mes de captura en piezas > 3 × el algoritmo del código;
-   código que lleva 1 a 5 meses sin venta; o 6+ meses sin venta (algoritmo en 0) con forecast. Se recalcula en vivo mientras escribes. */
-const RA = D.reglasAvisos || {}, X3 = (RA.x3alg && RA.x3alg.factor) || 3, SV = Object.assign({ min: 1, max: 5 }, RA.sinVenta || {});
+/* informe 03 §G y contrato v2 (reglasAvisos). Se recalcula en vivo mientras escribes. Devuelve [nivel, texto, texto corto]. Niveles (0.3.1):
+   · 'bad'  aviso FUERTE: en un mes de captura tu número en piezas pasa de X3 × el algoritmo del código Y de X3M × su mejor mes de venta;
+            o el código lleva 6+ meses sin venta (algoritmo en 0) y tiene forecast.
+   · 'warn' el código lleva 1 a 5 meses sin venta.
+   · 'nota' aviso SUAVE (gris, sin alarma): pasa de X3 × el algoritmo pero no de X3M × su mejor mes de venta. */
+const RA = D.reglasAvisos || {}, X3 = (RA.x3alg && RA.x3alg.factor) || 3, X3M = (RA.x3alg && RA.x3alg.factorMaxHist) || X3, SV = Object.assign({ min: 1, max: 5 }, RA.sinVenta || {});
+/* mejor mes de venta del código en piezas: codigos[].maxHistPz (datos 0.3.1), el que trae el aviso del generador, o el mejor mes del producto */
+function maxHist(p, c) {
+  if (c.maxHistPz != null) return { pz: c.maxHistPz, de: 'su mejor mes de venta' };
+  const a = (c.avisos || []).find(x => x.tipo === 'x3alg' && x.maxHistPz != null);
+  if (a) return { pz: a.maxHistPz, de: 'su mejor mes de venta' };
+  return { pz: Math.max(0, ...MH.map(m => p.real[m] || 0)), de: 'el mejor mes de venta del producto' };
+}
 function avisosCaptura(p) {
-  const out = [], maxP = Math.max(0, ...MH.map(m => p.real[m] || 0));
+  const out = [], veces = nf.format(X3), vecesM = nf.format(X3M);
   p.codigos.forEach(c => {
     const k = c.calc; if (!k) return;
-    const fz = c.pzPorU || 0, mx = ((c.avisos || []).find(a => a.tipo === 'x3alg' && a.maxHistPz != null) || {}).maxHistPz ?? maxP;
-    const fuertes = MK.filter(m => { const a = (k.fc && k.fc[m]) || 0; return fz && a > 0 && kamU(c, m) * fz > X3 * a; });
-    if (fuertes.length) {
-      const sobreMax = fuertes.some(m => kamU(c, m) * fz > X3 * mx);
-      out.push([sobreMax ? 'bad' : 'warn', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${nf.format(X3)} veces el algoritmo` + (sobreMax ? ` y más de ${nf.format(X3)} veces su mejor mes de venta (${fN(mx)} pz): deja un comentario con el motivo` : '')]);
-    }
+    const fz = c.pzPorU || 0, mh = maxHist(p, c), alg = m => (k.fc && k.fc[m]) || 0;
+    const sobre = MK.filter(m => fz && alg(m) > 0 && kamU(c, m) * fz > X3 * alg(m));          // más de X3 × el algoritmo
+    const fuertes = sobre.filter(m => kamU(c, m) * fz > X3M * mh.pz), suaves = sobre.filter(m => !fuertes.includes(m));
+    const peor = ms => ms.reduce((a, m) => kamU(c, m) * fz / alg(m) > kamU(c, a) * fz / alg(a) ? m : a, ms[0]);
+    if (fuertes.length) { const m = peor(fuertes);
+      out.push(['bad', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo y más de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). En ${ml(m)} pusiste ${fN(kamU(c, m) * fz)} pz y el algoritmo dice ${fN(alg(m))}.${suaves.length ? ` También pasan de ${veces} veces el algoritmo, sin llegar a ese máximo: ${suaves.map(ml).join(', ')}.` : ''} Deja un comentario con el motivo`, `${c.cod}: ${fuertes.map(ml).join(', ')} más de ${veces}× el algoritmo y de ${vecesM}× su mejor mes`]); }
+    else if (suaves.length) { const m = peor(suaves);        // la nota gris sale sola: si el código ya tiene aviso fuerte, sus otros meses van dentro de ese aviso
+      out.push(['nota', `${c.cod}: en ${suaves.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo (${ml(m)}: ${fN(kamU(c, m) * fz)} pz contra ${fN(alg(m))}), pero no pasa de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). Es solo una nota`, `${c.cod}: ${suaves.map(ml).join(', ')} más de ${veces}× el algoritmo`]); }
     const tiene = MK.some(m => kamU(c, m) > 0);
     if (k.sinVenta >= SV.min && k.sinVenta <= SV.max && tiene) out.push(['warn', `${c.cod}: hace ${fN(k.sinVenta)} ${k.sinVenta === 1 ? 'mes' : 'meses'} que no vende (última venta ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). ¿Sigue activo?`]);
     if (k.estado !== 'ACTIVO' && tiene) out.push(['bad', `${c.cod}: lleva ${fN(k.sinVenta)} meses sin venta y el algoritmo lo deja en 0, pero tu forecast tiene unidades. Revisa si sigue vigente`]);
   });
-  return out;
+  const orden = { bad: 0, warn: 1, nota: 2 };
+  return out.sort((a, b) => orden[a[0]] - orden[b[0]]);                  // lo fuerte primero; las notas al final
 }
+const avisosFuertes = p => avisosCaptura(p).filter(a => a[0] !== 'nota');   // lo que pide atención (filtros "Con aviso")
+const avisosHtml = av => av.map(([c, x]) => `<p class="aviso${c === 'bad' ? ' bad' : c === 'nota' ? ' nota' : ''}" style="margin-bottom:6px">${c === 'nota' ? '<span class="vh">Nota: </span>' : ''}${esc(x)}</p>`).join('');
+const avisosPills = av => av.map(([c, x, corto]) => pill(c === 'nota' ? '' : c, (c === 'nota' ? 'Nota · ' : '') + (corto || (x.length > 70 ? x.slice(0, 68) + '…' : x)))).join(' ');   // en la grilla, versión corta
 /* tu forecast pasado contra la venta: el del generador (precisionKam, en piezas) si viene; si no, se calcula aquí a precio de lista */
 function precKam(dist) {
   const pk = D.precisionKam; if (!pk) return null;
@@ -200,17 +224,17 @@ function sesgoProducto(p) {
 /* ---------- totales de una selección (todo a precio de lista para poder sumar productos distintos) ---------- */
 function resumen(sel) {
   const L12 = MH.slice(-12);
-  const r = { alg: 0, kam: 0, pzk: 0, pza: 0, d3: 0, d3ly: 0, inv: 0, d3st: 0, kp: 0, rl: 0, si: 0, err: 0, curso: 0, avance: 0, conAvance: 0, sinPrecio: 0, L12 };
+  const r = { alg: 0, kam: 0, pzk: 0, pza: 0, d3: 0, d3ly: 0, inv: 0, d3st: 0, vdst: 0, kp: 0, rl: 0, si: 0, err: 0, curso: 0, avance: 0, conAvance: 0, sinPrecio: 0, L12 };
   sel.forEach(p => {
     r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); r.pzk += kamPz6(p); r.pza += algPz6(p);
     r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly);
-    if (p.inv) { r.inv += pv(p, p.inv.pz); r.d3st += pv(p, p.d3); }
+    if (p.inv) { r.inv += pv(p, p.inv.pz); r.d3st += pv(p, ventaDoh(p)); r.vdst += pv(p, ventaDoh(p)) / diasDoh(p); }
     L12.forEach(m => { const k = p.kamPasadoPz && p.kamPasadoPz[m]; if (k) { const re = p.real[m] || 0; r.kp += pv(p, k); r.rl += pv(p, re); r.si += pv(p, p.sellIn[m] || 0); r.err += pv(p, Math.abs(re - k)); } });
     r.curso += kamVal(p, MC);
     const av = p.avanceSellInPz && p.avanceSellInPz[MC]; if (av != null) { r.avance += pv(p, av); r.conAvance++; }
     if (p.precioPz == null) r.sinPrecio++;
   });
-  r.doh = r.d3st > 0 ? r.inv / (r.d3st / 91.2) : null;
+  r.doh = r.vdst > 0 ? r.inv / r.vdst : null;
   r.sesgo = r.rl > 0 ? r.kp / r.rl - 1 : null;
   r.sesgoSI = r.si > 0 ? r.kp / r.si - 1 : null;
   r.prec = r.kp > 0 ? Math.max(0, 1 - r.err / r.kp) : null;
@@ -282,19 +306,19 @@ const EXP = {
     const sel = selDist(), r = resumen(sel), st = sel.filter(p => p.inv);
     const cl = [...new Set(st.map(p => p.clase))];
     return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : fN(r.doh) + ' días', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
-      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor en estos datos.' : `Cuántos días le alcanza al distribuidor el inventario del último corte, al ritmo de venta de los últimos 3 meses. ${st.length} productos con inventario.`,
-      formula: 'inventario del último corte ÷ (venta de los últimos 3 meses ÷ 91,2 días)',
-      filas: r.doh == null ? [] : [['Inventario (a precio de lista)', fC(r.inv)], ['Venta 3 meses de esos productos', fC(r.d3st)], ['Venta diaria', fC(r.d3st / 91.2)], ['Días de inventario', fN(r.doh), 1]],
+      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor en estos datos.' : `Cuántos días le alcanza al distribuidor el inventario del último corte, al ritmo de venta de los últimos 3 meses con reporte completo (si el distribuidor no reportó o reportó incompleto, ese mes se salta; con menos de 2 meses completos se usan los últimos 6). ${st.length} productos con inventario. Si el corte tiene más de 60 días antes del cierre, el dato se muestra como viejo y sin marca.`,
+      formula: 'inventario del último corte ÷ (venta de los meses completos ÷ (meses × 30,4 días))',
+      filas: r.doh == null ? [] : [['Inventario (a precio de lista)', fC(r.inv)], ['Venta de los meses completos de esos productos', fC(r.d3st)], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ')).join(' · ')], ['Venta diaria', fC(r.vdst)], ['Días de inventario', fN(r.doh), 1]],
       fuentes: ['Reporte de inventario de cada distribuidor (inventario unificado), convertido a piezas con la misma regla de unidades que la venta', 'Cortes: ' + (cl.length ? cl.map(c => esc(c) + ' ' + fechaCorta(D.distribuidores[c].invFecha) + ' (' + D.distribuidores[c].invCortes + ' cortes)').join(' · ') : '—')],
       nota: `Umbrales del reporte de distribuidores en Power BI: menos de ${KAMN === 'MONICA' ? '30 días (exportación)' : '15 días'} = riesgo de quiebre; más de 90 = sobrestock; más de 180 = exceso.` };
   },
   k_sesgo() {
     const sel = selDist(), r = resumen(sel), pk = r.pk;
-    if (pk) return { t: 'Tu forecast pasado contra la venta', v: fP(pk.sesgoReal), u: `sesgo, ${ml(pk.desde)} – ${ml(pk.hasta)} (${pk.meses} meses con forecast)`,
-      que: `Compara lo que pusiste en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, en ${esc(distTxt())}. Positivo = pronosticaste de más. Entran los meses en que diste forecast y todos los productos del portal de esa clase.`,
-      formula: 'sesgo = Σ forecast ÷ Σ venta real − 1 · error (WAPE) = Σ |venta real − forecast| ÷ Σ venta real · precisión = 1 − Σ |venta real − forecast| ÷ Σ forecast (FCST ACC de Power BI)',
+    if (pk) return { t: 'Tu forecast pasado contra la venta', v: fP(pk.sesgoReal), u: `sesgo, ${ml(pk.desde)} – ${ml(pk.hasta)} (${pk.meses} meses${pk.mesesConForecast != null ? ', ' + pk.mesesConForecast + ' con forecast' : ''}${(pk.mesesExcluidos || []).length ? '; sin ' + pk.mesesExcluidos.map(ml).join(', ') + ' por reporte incompleto' : ''})`,
+      que: `Compara lo que pusiste en el formulario para cada mes (el oficial de ese mes, BHIST) contra la demanda real, en ${esc(distTxt())}. Positivo = pronosticaste de más. Se suman los 12 meses (un mes sin forecast cuenta como 0: en exportación un mes sin embarque es normal) y todos los productos del portal de esa clase; se quitan los meses en que el distribuidor no reportó o reportó incompleto.`,
+      formula: 'sesgo = Σ forecast ÷ Σ venta real − 1 · error (WAPE) = Σ |venta real − forecast| ÷ Σ venta real · precisión = 1 − Σ |venta real − forecast| ÷ Σ forecast (FCST ACC de Power BI) · acierto trimestral = 1 − Σ |sell in − forecast| ÷ Σ sell in, por producto en bloques de 3 meses',
       filas: [['Tu forecast de esos meses', fN(pk.fcstPz) + ' pz'], ['Venta real (demanda) de esos meses', fN(pk.realPz) + ' pz'], ['Sesgo contra la venta', flecha(pk.sesgoReal) + fP(pk.sesgoReal), 1], ['Error típico (WAPE) contra la venta', pk.wapeReal == null ? '—' : nf.format(pk.wapeReal * 100) + ' %'], ['Precisión contra la venta (FCST ACC)', pk.accReal == null ? '—' : nf.format(Math.max(0, pk.accReal) * 100) + ' %'],
-        ['Referencia: sell in (facturado) de esos meses', fN(pk.sellInPz) + ' pz'], ['Sesgo contra el sell in', flecha(pk.sesgoSellIn) + fP(pk.sesgoSellIn)], ['Precisión contra el sell in', pk.accSellIn == null ? '—' : nf.format(Math.max(0, pk.accSellIn) * 100) + ' %']],
+        ['Referencia: sell in (facturado) de esos meses', fN(pk.sellInPz) + ' pz'], ['Sesgo contra el sell in', flecha(pk.sesgoSellIn) + fP(pk.sesgoSellIn)], ['Precisión contra el sell in', pk.accSellIn == null ? '—' : nf.format(Math.max(0, pk.accSellIn) * 100) + ' %'], ['Acierto trimestral contra el sell in', pk.accTrimSellIn == null ? '—' : nf.format(pk.accTrimSellIn * 100) + ' %']],
       fuentes: ['Forecast histórico: BHIST (la carpeta de cada mes guarda tu número para ese mes)', 'Venta real: demanda de cada distribuidor (sell through / sell out / sell in directo)', 'Sell in: facturación de Brinova (DATA SELL IN)'],
       tec: 'datos.json → precisionKam' + (S.dist === 'TODOS' ? '.total' : '.porClase[' + esc(S.dist) + ']') + ' (en piezas)', nota: esc(pk.regla || '') + ' Sirve para calibrar: si sueles ir arriba, revisa primero los productos grandes.' };
     return { t: 'Tu forecast pasado contra la venta', v: fP(r.sesgo), u: 'sesgo, últimos 12 meses cerrados',
@@ -326,11 +350,11 @@ const EXP = {
   p_inv(ds) {
     const p = PID[ds.p], f = fac(p), i = p.inv;
     if (!i) return { t: 'Inventario · ' + p.nombre, v: 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'El distribuidor no ha enviado inventario de este producto.' };
-    const vd = p.d3 / 91.2, e = estInv(i.doh, p.clase);
+    const vd = dias(p) == null ? 0 : ventaDoh(p) / diasDoh(p), e = estInv(dias(p), p.clase);
     return { t: 'Inventario y días · ' + p.nombre, v: fN1(i.pz / f) + ' ' + uNom(p), u: 'al ' + fechaCorta(i.fecha),
       que: `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
-      formula: 'días = inventario ÷ (venta de 3 meses ÷ 91,2 días)',
-      filas: [['Inventario (piezas)', fN(i.pz) + ' pz'], ['Venta 3 meses (piezas)', fN(p.d3) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', i.doh == null ? 'sin venta reciente' : fN(i.doh), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]],
+      formula: 'días = inventario ÷ (venta de los meses completos ÷ (meses × 30,4 días))',
+      filas: [['Inventario (piezas)', fN(i.pz) + ' pz'], ['Venta de ' + mesesDoh(p.clase).map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? 'sin venta reciente' : fN(dias(p)), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]],
       fuentes: [`Reporte de inventario de ${esc(p.clase)} (${(D.distribuidores[p.clase] || {}).invCortes || 0} cortes; último ${fechaCorta(i.fecha)}), convertido a piezas con la regla de unidades del cluster`],
       tec: 'productos[].inv.pz, .inv.doh, .inv.hist', nota: `Estado: ${e ? e[1] : 'sin dato'}. Umbrales: menos de ${riesgo(p.clase)} días riesgo de quiebre, más de 90 sobrestock, más de 180 exceso.` };
   },
@@ -528,7 +552,7 @@ function pasaChip(p, k) {
   if (k === 'dif') { const d = dif(p); return d != null && Math.abs(d) > 0.5; }
   if (k === 'cae') { const t = tend(p); return t != null && t <= -0.1; }
   if (k === 'editados') return p.codigos.some(c => MK.some(m => editado(c, m)));
-  if (k === 'aviso') return avisosCaptura(p).length > 0;
+  if (k === 'aviso') return avisosFuertes(p).length > 0;      // las notas grises (solo más de 3 × el algoritmo) no cuentan como aviso
   return true;
 }
 const filtrados = () => { const q = S.q.trim().toLowerCase(); return P.filter(p => enDist(p) && (!S.cat || p.cat === S.cat) && (!q || p.txt.includes(q)) && pasaChip(p, S.chip)); };
@@ -553,7 +577,7 @@ function pintarHorizonte() {
 /* ---------- indicadores ---------- */
 function pintarKpis() {
   const sel = P.filter(enDist), r = resumen(sel);
-  const tri = MH.slice(-3), t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null, ei = r.doh == null ? null : estInv(r.doh, S.dist === 'TODOS' ? D.clases[0] : S.dist);
+  const tri = MH.slice(-3), t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null, ei = r.doh == null ? null : estInv(r.doh, S.dist === 'TODOS' ? null : S.dist);
   const tSel = tipoSel(), sinInv = !sel.some(p => p.inv);
   const porQue = tSel === 'sell in directo' ? 'Es venta directa de Brinova' : tSel === 'sell out' ? 'Las cadenas no envían inventario a BI' : 'No hay reporte de inventario de este cliente';
   const fechas = [...new Set(sel.filter(p => p.inv).map(p => (D.distribuidores[p.clase] || {}).invFecha).filter(Boolean))];
@@ -566,7 +590,7 @@ function pintarKpis() {
     <span class="refs"><span>Año anterior</span><span>${fC(r.d3ly)}</span></span></div>
   <div class="kpi"><span class="lbl">Inventario en el distribuidor</span>
     ${sinInv ? `<span class="big">No aplica</span><span class="sub">${porQue}</span>` :
-      `<span class="big">${r.doh == null ? '—' : nb('k_doh', fN(r.doh) + ' días')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
+      `<span class="big">${r.doh == null ? '—' : nb('k_doh', fN(r.doh) + ' días')}</span><span class="vr ${ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted'}">${ei ? esc(ei[1]) : ''}</span>
       <span class="refs"><span>Valor</span><span>${fC(r.inv)}</span><span>Corte</span><span>${fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') : '—'}</span></span>`}</div>
   <div class="kpi"><span class="lbl">Tu forecast pasado contra la venta</span><span class="big">${r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo))}</span>
     <span class="vr ${r.sesgo != null && Math.abs(r.sesgo) > 0.15 ? 'warn' : 'muted'}">${r.sesgo == null ? 'sin forecast en los últimos 12 meses' : r.sesgo > 0 ? 'pronosticaste de más' : 'pronosticaste de menos'}</span>
@@ -592,7 +616,7 @@ function pintarDistribuidores() {
     const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pk.sesgoReal : r2.sesgo;
     return `<tr><td class="l"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
       <td class="l" style="white-space:normal">${pill('src', fuenteTxt(cl))}${inc.map(m => ' <span class="pill warn" title="' + esc(incTxt(cl, m)) + '">' + esc(ml(m) + ' ' + incTxt(cl, m)) + '</span>').join('')}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
-      <td>${s2.length}</td><td>${r2.doh == null ? '—' : fN(r2.doh) + (e ? ' · ' + esc(e[1].toLowerCase()) : '')}</td><td class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
+      <td>${s2.length}</td><td>${r2.doh == null ? '—' : fN(r2.doh) + (e ? ' · ' + (e[0] ? esc(e[1].toLowerCase()) : `<span class="muted">${esc(e[1])}</span>`) : '')}${d.invFecha ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
       <td class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk && pk.accReal != null ? `<small class="muted" style="display:block">precisión ${nf.format(Math.max(0, pk.accReal) * 100)} %</small>` : ''}</td></tr>`;
   }).join('');
   $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl"><thead><tr><th class="l">Distribuidor</th><th class="l">Demanda (fuente)</th><th>Productos</th><th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th>Tu forecast pasado vs venta</th></tr></thead><tbody>${filas}</tbody></table></div>
@@ -653,7 +677,7 @@ function grupoCap(p, ncols) {
   const f = fac(p), d = dif(p), a = alertas(p), av = avisosCaptura(p);
   return `<tr class="grp" data-g="${esc(p.id)}"><th class="stk" scope="rowgroup" colspan="2"><div class="gwrap"><button type="button" class="nmp" data-p="${esc(p.id)}">${esc(p.nombre)}</button><span class="small muted">${esc(p.clase)} · ${esc(fuenteTxt(p.clase))}</span></div></th>
     <td colspan="${ncols}" style="text-align:left"><div class="gwrap small"><span>Algoritmo <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>
-    ${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}<span data-ga="${esc(p.id)}">${av.map(([c, x]) => pill(c, x.length > 70 ? x.slice(0, 68) + '…' : x)).join(' ')}</span></div></td></tr>`;
+    ${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}<span data-ga="${esc(p.id)}">${avisosPills(av)}</span></div></td></tr>`;
 }
 function pintarGrid() {
   const L = listaCaptura(), ms = mesesCaptura(), lim = L.slice(0, S.capLim);
@@ -753,7 +777,8 @@ function pintarMetodo() {
     <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Tu forecast pasado contra la venta</b> te dice si sueles ir arriba o abajo.</p></section>
   <section class="panel prosa"><h3>4. Qué meses capturas</h3>
     <p>Estamos en el ciclo de <b>${mll(D.ciclo)}</b>. ${esc(mll(MC).replace(/^./, x => x.toUpperCase()))} ya está corriendo: su forecast queda con candado (${OFICIAL_CURSO ? 'el oficial' : 'el de tu formulario vigente'}). Se capturan los ${MK.length} meses siguientes: <b>${rango(MK)}</b>${CAP_HASTA ? ', hasta el ' + fechaCorta(CAP_HASTA) : ''}. Los meses después de la captura muestran el algoritmo como referencia; en “Capturar forecast” → “Todo el año” se ve todo lo cargado.</p>
-    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del algoritmo (más de 50 %, o más de 3 veces en un mes), deja un comentario con el motivo.</p></section>
+    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del algoritmo (más de 50 %), deja un comentario con el motivo.</p>
+    <p><b>Avisos de la captura</b>, por código y mes: el aviso <b>rojo</b> sale solo cuando tu número pasa de ${nf.format(X3)} veces el algoritmo <b>y además</b> de ${nf.format(X3M)} veces el mejor mes de venta que ha tenido ese código; ahí conviene dejar el motivo. Si solo pasa de ${nf.format(X3)} veces el algoritmo, verás una <b>nota gris</b>, sin alarma: es para que lo tengas presente. El aviso amarillo es para un código que lleva de ${SV.min} a ${SV.max} meses sin vender.</p></section>
   <section class="panel prosa"><h3>5. Unidades</h3>
     <p>Todo se suma en <b>piezas</b>, la unidad estándar del motor (1 alambrina, 1 esponja). Cada código tiene sus <b>piezas por unidad de venta</b> (T_SKU · UNIDAD DE EMPAQUE): una caja de 120 pz son 120 piezas.</p>
     <p>Un producto puede tener varios códigos (unidad, caja, pack). Brinova a veces factura uno y el distribuidor reporta otro, así que se juntan por producto. Con <b>Unidad del formulario</b> ves cada producto en la presentación de tu formulario; con <b>Piezas (unidad estándar)</b>, todo en piezas.</p></section>
@@ -819,7 +844,9 @@ function htmlOrigen(p) {
     <div class="tw" role="region" tabindex="0" aria-label="Demanda y sell in por mes" style="max-height:340px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Demanda (pz)</th>${dir ? '' : '<th>Sell in (pz)</th><th>Sell in − demanda</th>'}<th>Demanda en ${esc(uNom(p))}</th></tr></thead><tbody>
     ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill warn">▲ ' + esc(incTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
     </tbody><tfoot><tr><th class="l" scope="row">12 meses</th><td>${fN(p.d12)}</td>${dir ? '' : `<td>${fN(p.s12)}</td><td>${fN(p.s12 - p.d12)}</td>`}<td>${nb('p_cierre', p.cierre === 'OK' ? 'cuadra' : esc(p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</td></tr></tfoot></table></div>
-    <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p>`;
+    <p class="prosa small" style="margin-top:8px">${textoCierre(p)}</p>
+    <details class="rs sub" id="lj-box" style="margin-top:12px"${RS.cache[p.id] ? ' open' : ''}><summary>Linaje real: del reporte a piezas<span class="nota">archivo de origen, unidades del reporte, factor y piezas · se carga del rastreo al abrirlo</span></summary>
+      <div id="lj-cuerpo" style="margin-top:10px">${RS.cache[p.id] ? htmlLinaje(p, RS.cache[p.id]) : ''}</div></details>`;
 }
 function htmlAlgoritmo(p) {
   const cs = p.codigos.filter(c => c.calc);
@@ -855,9 +882,9 @@ function htmlAlgoritmo(p) {
 }
 function htmlInventario(p) {
   const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase);
-  const pos = i && i.doh != null ? Math.min(100, i.doh / 200 * 100) : null;
+  const dd = dias(p), pos = i && dd != null ? Math.min(100, dd / 200 * 100) : null;
   return `<div class="panel-h"><h2>Inventario y precio</h2></div><div><div>
-    ${i ? `<p class="prosa">Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(i.pz / f)} ${esc(uNom(p))}</b> (${fN(i.pz)} pz). Vende en promedio ${fN1(p.d3 / 3 / f)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (i.doh == null ? 'sin venta reciente' : fN(i.doh) + ' días') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + ' días.' : ''}</p>
+    ${i ? `<p class="prosa">Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(i.pz / f)} ${esc(uNom(p))}</b> (${fN(i.pz)} pz). Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : fN(dd) + ' días') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + ' días.' : ''}</p>
       ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${rz / 2}%;background:#F6C9C6"></span><span style="width:${45 - rz / 2}%;background:#CFEBDD"></span><span style="width:45%;background:#FBE6BF"></span><span style="width:10%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
       <div class="escala-l"><span>0</span><span>${rz} quiebre</span><span>90 sobrestock</span><span>180 exceso</span><span>200+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b></p>` : ''}
       <div class="chart" id="ch-inv" style="margin-top:10px"></div>
@@ -880,7 +907,7 @@ function pintarDetalle(p) {
     <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}</div>
     ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
     <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
-  <div id="det-avisos">${av.length ? av.map(([c, x]) => `<p class="aviso${c === 'bad' ? ' bad' : ''}" style="margin-bottom:6px">${esc(x)}</p>`).join('') : ''}</div>
+  <div id="det-avisos">${avisosHtml(av)}</div>
   <div class="mini">
     <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span></div>
     <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(inv.pz / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span><span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : fN(dias(p)) + ' días · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
@@ -898,7 +925,7 @@ function pintarDetalle(p) {
   <section class="panel" aria-labelledby="or-t">${htmlOrigen(p)}</section>
   <section class="panel">${htmlAlgoritmo(p)}</section>
   <section class="panel">${htmlInventario(p)}</section>
-  <section class="panel"><details class="rs" id="rs-box" data-p="${esc(p.id)}"><summary>Rastreo hasta cliente, fecha y factura<span class="nota">se carga solo al abrirlo</span></summary><div id="rs-cuerpo" style="margin-top:10px"></div></details></section>
+  <section class="panel"><details class="rs" id="rs-box" data-p="${esc(p.id)}"><summary><span id="rs-tit">${esc(rsTitulo(p))}</span><span class="nota">${esc(rsNota(p))}</span></summary><div id="rs-cuerpo" style="margin-top:10px"></div></details></section>
   </div>`;
   RS.p = p.id; RS.m = null; RS.path = []; RS.dim = null; RS.lim = 200;
   graficoProducto(p);
@@ -918,51 +945,88 @@ function refrescarDetalle(p) {
   const k = $('#det-kam'); if (k) k.innerHTML = nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`);
   const k2 = $('#det-kam2'); if (k2) { k2.textContent = flecha(d) + fP(d) + ' contra el algoritmo · ' + fC(kamValM(p, MK)); k2.className = 'vr ' + (d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'); }
   const af = $('#det-afecta'); if (af) af.innerHTML = afecta(p);
-  const av = $('#det-avisos'); if (av) av.innerHTML = avisosCaptura(p).map(([c, x]) => `<p class="aviso${c === 'bad' ? ' bad' : ''}" style="margin-bottom:6px">${esc(x)}</p>`).join('');
+  const av = $('#det-avisos'); if (av) av.innerHTML = avisosHtml(avisosCaptura(p));
 }
 
-/* ---------- rastreo hasta cliente, fecha y factura (detalle-v1, informe 04): un archivo por producto, a demanda ---------- */
+/* ---------- rastreo hasta cliente o tienda (detalle-v1, informe 04): un archivo por producto, a demanda ----------
+   0.3.1 · hay rastreo si existe detalle/indice.json en la carpeta del KAM (no depende de su nombre);
+         · si el índice trae la copia comprimida ("gz") y el navegador sabe descomprimir, se baja esa; si no, el .json;
+         · el cuadre usa la tolerancia del índice (±0,5 pz por producto y mes: el portal guarda piezas enteras);
+         · dice el grano de cada fuente: día y factura, o solo el total del mes por cliente o por tienda. */
 const RS = { p: null, m: null, path: [], dim: null, lim: 200, cache: {} };
-const SIN_DETALLE = {
-  MONICA: 'El rastreo de Mónica llega después del 27/11: sus archivos de detalle pasan de 1 MB (se publicarán comprimidos) y cuatro de sus países solo reportan el total del mes.',
-  FRANCISCO: 'El rastreo de Francisco llega después del 27/11: el CUBO de las cadenas trae la tienda pero solo el total del mes, sin fecha ni factura.',
-};
+const SIN_DETALLE = 'Todavía no hay rastreo publicado en tu carpeta. BI lo publica solo cuando cuadra con este portal (tolerancia de redondeo: ±0,5 piezas por producto y mes).';
+const PUEDE_GZ = typeof DecompressionStream === 'function' && window.portalGzip !== false;
+const nfd = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 2 });
+const fPz = v => ok(v) ? nfd.format(Math.abs(v) < 0.005 ? 0 : v) : '—';            // piezas con sus decimales (CODISA y BRYDEN reportan fracciones)
+const fKb = kb => !ok(kb) ? '' : kb >= 1024 ? nf1.format(kb / 1024) + ' MB' : nf.format(kb) + ' KB';
+const FUENTE_NOM = { 'SELL THROUGH': 'sell through', 'SELL OUT': 'sell out', 'SELL IN DIRECTO': 'sell in directo' };
 const filaObj = (t, i) => { const o = {}; if (!t || i == null || i < 0 || !t.filas || !t.filas[i]) return o; t.cols.forEach((k, j) => { o[k] = t.filas[i][j]; }); return o; };
 async function cargarRastreo(p) {
   if (RS.cache[p.id]) return RS.cache[p.id];
   if (typeof window.portalLeer !== 'function') return { msg: 'El rastreo se abre en el portal web: lee la carpeta <b>detalle/</b> de tu OneDrive. En esta vista no está disponible.' };
-  if (D.calendario && !D.detalle) return { msg: SIN_DETALLE[KAMN] || 'Todavía no hay detalle publicado en tu carpeta. BI lo publica solo cuando cuadra exacto con este portal.' };   // v2 avisa si hay detalle
   const rutaIx = (D.detalle && D.detalle.indice) || 'detalle/indice.json', carpeta = rutaIx.replace(/[^/]*$/, '');
   let ix;
   try { ix = await window.portalLeer(rutaIx); } catch (e) { return { msg: 'No se pudo leer el índice del detalle: ' + esc(e && e.message || e) + '. Revisa la conexión e intenta de nuevo.', reintentar: true }; }
-  if (!ix) return { msg: SIN_DETALLE[KAMN] || 'Todavía no hay detalle publicado en tu carpeta. BI lo publica solo cuando cuadra exacto con este portal.' };
+  if (!ix) return { msg: SIN_DETALLE };
   if (ix.esquema !== 'detalle-v1') return { msg: 'El detalle publicado tiene un formato que esta página no conoce (' + esc(ix.esquema) + ').' };
   const meta = ix.productos && ix.productos[p.id];
   if (!meta) return { ix, msg: `Este producto no tiene ventas en el detalle (${esc(ml(ix.meses[0]))} – ${esc(ml(ix.meses[ix.meses.length - 1]))}).` };
-  let f;
-  try { f = await window.portalLeer(carpeta + meta.archivo); } catch (e) { return { msg: 'No se pudo leer el detalle del producto: ' + esc(e && e.message || e), reintentar: true }; }
+  /* archivo del producto: la copia comprimida si existe y este navegador la puede abrir; si no hay o falla, el .json sin comprimir */
+  let f = null, leido = null, nota = '';
+  if (meta.gz && PUEDE_GZ) {
+    try { f = await window.portalLeer(carpeta + meta.gz); if (f) leido = { ruta: carpeta + meta.gz, kb: meta.kbGz, kbAbierto: meta.kb, gz: true }; }
+    catch (e) { f = null; nota = 'No se pudo abrir la copia comprimida (' + (e && e.message || e) + '): se leyó el archivo sin comprimir.'; }
+  } else if (meta.gz) nota = 'Este navegador no descomprime archivos: se bajó el archivo completo.';
+  if (!f) {
+    try { f = await window.portalLeer(carpeta + meta.archivo); }
+    catch (e) {
+      if (e && e.code === 'sin_gzip') return { msg: 'Este navegador no puede abrir el detalle comprimido de este producto. Ábrelo en una computadora o actualiza el navegador.' };
+      return { msg: 'No se pudo leer el detalle del producto: ' + esc(e && e.message || e), reintentar: true };
+    }
+    if (f) leido = { ruta: carpeta + meta.archivo, kb: meta.kb, gz: false };
+  }
   if (!f) return { ix, msg: 'El índice menciona este producto, pero su archivo no está publicado. Avisa a BI.' };
   const base = Date.parse((f.base || ix.base) + 'T00:00:00Z'), L = [], tot = {};
   const pts = f.puntos, ags = f.agentes, lin = f.linajes;
+  const gran = f.granularidadFecha || (ix.clases[p.clase] || {}).granularidadFecha || {};
+  const lins = lin && lin.filas ? lin.filas.map((_, i) => filaObj(lin, i)) : [];
   for (let i = 0; i < f.d.length; i++) {
     const fe = new Date(base + f.d[i] * 864e5).toISOString().slice(0, 10), mes = fe.slice(0, 7);
-    const pu = filaObj(pts, f.c ? f.c[i] : null), ag = f.a ? filaObj(ags, f.a[i]) : {}, li = filaObj(lin, f.l ? f.l[i] : null);
+    const pu = filaObj(pts, f.c ? f.c[i] : null), ag = f.a ? filaObj(ags, f.a[i]) : {}, li = lins[f.l ? f.l[i] : -1] || {};
     const pz = f.pz[i]; tot[mes] = (tot[mes] || 0) + pz;
+    const fuente = pu.fuente || li.fuente || '';
     L.push({ fecha: fe, mes, factura: f.f && f.f[i] != null ? String(f.f[i]) : '', cod: pu.cod || '', cli: (pu.nombre || pu.cod || 'Sin nombre'), tipo: pu.tipo || 'Sin tipo', canal: pu.canal || (ix.canalPorTipoCliente || {})[pu.tipo] || 'Sin canal',
-      prov: pu.provincia || 'Sin provincia', canton: pu.canton || '', dist: pu.distribuidor || li.distribuidor || '', fuente: pu.fuente || li.fuente || '', agente: ag.cod ? ag.cod + ' · ' + (ag.nombre || '') : 'Sin agente',
-      u: f.u[i], urep: li.unidadReporte || '—', factor: li.factor, codArch: li.codArchivo || '', pt: li.pt || '', pz });
+      prov: pu.provincia || 'Sin provincia', canton: pu.canton || '', dist: pu.distribuidor || li.distribuidor || '', fuente, porMes: gran[fuente] === 'mes', agente: ag.cod ? ag.cod + ' · ' + (ag.nombre || '') : 'Sin agente',
+      u: f.u[i], urep: li.unidadReporte || '—', factor: li.factor, codArch: li.codArchivo || '', pt: li.pt || '', li: f.l ? f.l[i] : -1, pz });
   }
-  const gran = (ix.clases[p.clase] || {}).granularidadFecha || f.granularidadFecha || {};
-  const res = { ix, f, L, tot, gran, mensual: Object.values(gran).every(g => g === 'mes'), clase: ix.clases[p.clase] || {}, misma: ix.datosGenerado === D.generado };
+  const fuentes = Object.keys(gran), tolIx = ix.tolerancia && ix.tolerancia.celdaPz;
+  const res = { ix, f, L, tot, gran, lins, leido, nota, mensual: fuentes.length > 0 && Object.values(gran).every(g => g === 'mes'), soloSO: fuentes.length > 0 && fuentes.every(k => k === 'SELL OUT'),
+    conFactura: L.some(l => l.factura), conAgente: L.some(l => l.agente !== 'Sin agente'), tol: ok(tolIx) ? +tolIx : 0.5, clase: ix.clases[p.clase] || {}, misma: ix.datosGenerado === D.generado };
   return (RS.cache[p.id] = res);
 }
+/* título del rastreo según el grano: antes de cargar se deduce de la fuente del cliente; después, de lo que trae el archivo */
+function rsTitulo(p, res) {
+  const so = res && res.L ? res.soloSO : tipoDe(p.clase) === 'sell out', men = res && res.L ? res.mensual : tipoDe(p.clase) !== 'sell through';
+  return men ? (so ? 'Rastreo por tienda y mes' : 'Rastreo por cliente y mes') : 'Rastreo hasta cliente, fecha y factura';
+}
+const rsNota = p => (tipoDe(p.clase) === 'sell out' ? 'las cadenas no envían fecha ni factura · ' : '') + 'se carga solo al abrirlo';
+/* qué es cada línea, dicho en claro según lo que reporta la fuente */
+function rsIntro(p, res) {
+  const fin = ' La suma de piezas del mes es la venta real que ves en el portal. Los negativos son devoluciones o notas de crédito.';
+  const calc = '<b>unidades del archivo × factor = piezas</b>.';
+  if (res.mensual && res.soloSO) return `<b>Por tienda y mes; las cadenas no envían fecha ni factura.</b> Cada línea es el total de un mes de una tienda de ${esc(p.clase)}, según el escáner de la cadena (sell out, CUBO de cadenas): ${calc}` + fin;
+  if (res.mensual) return `<b>Por cliente y mes; esta fuente no trae fecha diaria${res.conFactura ? '' : ' ni factura'}.</b> Cada línea es el total de un mes de un cliente de ${esc(p.clase)} (${esc(Object.keys(res.gran).map(k => FUENTE_NOM[k] || k.toLowerCase()).join(', ') || fuenteTxt(p.clase))}): ${calc}` + fin;
+  const partes = Object.entries(res.gran).map(([k, g]) => (FUENTE_NOM[k] || k.toLowerCase()) + ' · ' + (g === 'día' ? 'diario' : 'solo el total del mes')).join(', ');
+  return `Cada línea es una fila del reporte de ${esc(p.clase)} (${esc(partes || fuenteTxt(p.clase))}${res.conFactura ? ', con factura' : ''}${res.conAgente ? ' y agente' : ''}): ${calc}` + fin;
+}
 function dimsRastreo(res) {
-  const d = [['canal', 'Canal', l => l.canal], ['tipo', 'Tipo de cliente', l => l.tipo]];
-  if (res.L.some(l => l.prov !== 'Sin provincia')) d.push(['prov', 'Provincia', l => l.prov]);
-  if (res.L.some(l => l.agente !== 'Sin agente')) d.push(['agente', 'Agente / ruta', l => l.agente]);
-  d.push(['cli', 'Cliente', l => l.cli + (l.cod ? ' · ' + l.cod : '')]);
+  if (res.dims) return res.dims;
+  const so = res.soloSO;
+  const cand = [['canal', 'Canal', l => l.canal], ['tipo', so ? 'Formato de tienda' : 'Tipo de cliente', l => l.tipo], ['prov', 'Provincia', l => l.prov], ['agente', 'Agente / ruta', l => l.agente]];
+  const d = cand.filter(x => { const v0 = res.L.length ? x[2](res.L[0]) : null; return res.L.some(l => x[2](l) !== v0); });      // una dimensión con un solo valor no desglosa nada
+  d.push(['cli', so ? 'Tienda' : 'Cliente', l => l.cli + (l.cod ? ' · ' + l.cod : '')]);
   if (!res.mensual) d.push(['fecha', 'Fecha', l => l.fecha]);
-  return d;
+  return (res.dims = d);
 }
 async function abrirRastreo() {
   const p = PID[RS.p], box = $('#rs-cuerpo'); if (!p || !box) return;
@@ -972,6 +1036,7 @@ async function abrirRastreo() {
   if (res.msg) { box.innerHTML = `<p class="aviso${res.reintentar ? ' bad' : ' info'}">${res.msg}</p>${res.reintentar ? '<button type="button" class="btn" data-rs-reintentar style="margin-top:8px">Intentar de nuevo</button>' : ''}`; if (res.reintentar) delete RS.cache[p.id]; return; }
   const ms = res.ix.meses.filter(m => (res.tot[m] || 0) !== 0 || (p.real[m] || 0) !== 0).reverse();
   if (!RS.m || !ms.includes(RS.m)) RS.m = ms[0];
+  const t = $('#rs-tit'); if (t) t.textContent = rsTitulo(p, res);
   pintarRastreo();
 }
 function pintarRastreo() {
@@ -980,33 +1045,67 @@ function pintarRastreo() {
   let L = all; RS.path.forEach(([k, v]) => { const d = dims.find(x => x[0] === k); if (d) L = L.filter(l => d[2](l) === v); });
   const usadas = RS.path.map(x => x[0]), libres = dims.filter(d => !usadas.includes(d[0]));
   if (RS.dim !== 'lineas' && (!RS.dim || usadas.includes(RS.dim) || !dims.some(d => d[0] === RS.dim))) RS.dim = libres.length ? libres[0][0] : 'lineas';
-  const totN = L.reduce((a, l) => a + l.pz, 0), totM = all.reduce((a, l) => a + l.pz, 0), real = p.real[m] || 0, cuadra = Math.round(totM) === Math.round(real);
+  /* cuadre del mes: el portal guarda piezas enteras, así que se acepta la diferencia de redondeo que declara el índice (±0,5 pz) */
+  const totN = L.reduce((a, l) => a + l.pz, 0), totM = all.reduce((a, l) => a + l.pz, 0), real = p.real[m] || 0, dif = totM - real;
+  const exacto = Math.abs(dif) < 0.005, cuadra = Math.abs(dif) <= res.tol + 1e-9;
   const ms = res.ix.meses.filter(x => (res.tot[x] || 0) !== 0 || (p.real[x] || 0) !== 0).reverse();
-  const fuentes = Object.entries(res.gran).map(([k, g]) => k.toLowerCase() + ' · ' + (g === 'día' ? 'diario' : 'mensual')).join(', ');
-  let h = `<p class="small muted" style="margin-bottom:8px">Cada línea es una fila del reporte de ${esc(p.clase)} (${esc(fuentes || fuenteTxt(p.clase))}${res.clase.tieneFactura ? ', con factura' : ''}${res.clase.tieneAgente ? ' y agente' : ''}): <b>unidades del archivo × factor = piezas</b>. La suma de piezas del mes es la venta real que ves en el portal. Los negativos son devoluciones o notas de crédito.</p>
+  const punto = res.soloSO ? 'Tienda' : 'Cliente', nomLineas = res.conFactura ? 'Líneas de factura' : 'Líneas del reporte', nLin = L.length === 1 ? 'línea' : 'líneas';
+  const le = res.leido || {};
+  let h = `<p class="small muted" style="margin-bottom:8px">${rsIntro(p, res)}</p>
   ${res.misma ? '' : `<p class="aviso" style="margin-bottom:8px">El detalle es de la corrida del ${esc(res.ix.datosGenerado)} y el portal es del ${esc(D.generado)}: no se compara el cuadre hasta que BI publique los dos de la misma corrida.</p>`}
-  <div class="tools"><label class="small muted" for="rs-m">Mes</label><select id="rs-m">${ms.map(x => `<option value="${x}"${x === m ? ' selected' : ''}>${mll(x)}</option>`).join('')}</select>
-    ${res.mensual ? '<span class="small muted">Este cliente reporta solo el total del mes: no hay fecha diaria.</span>' : ''}</div>
+  <div class="tools"><label class="small muted" for="rs-m">Mes</label><select id="rs-m">${ms.map(x => `<option value="${x}"${x === m ? ' selected' : ''}>${mll(x)}</option>`).join('')}</select></div>
   <nav class="ruta" aria-label="Nivel de detalle"><button type="button" data-rs-nivel="-1">${esc(ml(m))} · todo</button>${RS.path.map(([k, v], i) => `<span class="sep" aria-hidden="true">›</span><button type="button" data-rs-nivel="${i}">${esc((dims.find(d => d[0] === k) || [0, k])[1])}: ${esc(k === 'fecha' ? fechaCorta(v) : v)}</button>`).join('')}</nav>
-  <div class="cuadre"><span>Este nivel: <b>${fN(totN)} pz</b> = ${fN1(totN / f)} ${esc(uNom(p))} · ${fN(L.length)} líneas</span>
-    <span class="muted">Total del mes en el detalle ${fN(totM)} pz · venta real del portal ${fN(real)} pz</span>${res.misma ? pill(cuadra ? 'good' : 'bad', cuadra ? '✓ cuadra' : 'no cuadra: avisa a BI') : ''}</div>
-  <div class="seg" role="group" aria-label="Agrupar por" style="margin-bottom:10px">${libres.map(d => `<button type="button" data-rs-dim="${d[0]}" aria-pressed="${RS.dim === d[0]}">${d[1]}</button>`).join('')}<button type="button" data-rs-dim="lineas" aria-pressed="${RS.dim === 'lineas'}">Líneas de factura</button></div>`;
+  <div class="cuadre"><span>Este nivel: <b>${fPz(totN)} pz</b> = ${fN1(totN / f)} ${esc(uNom(p))} · ${fN(L.length)} ${nLin}</span>
+    <span class="muted">Total del mes en el detalle ${fPz(totM)} pz · venta real del portal ${fN(real)} pz${res.misma && cuadra && !exacto ? ` · diferencia de ${fPz(Math.abs(dif))} pz por redondeo: el portal guarda piezas enteras (tolerancia ±${fPz(res.tol)} pz)` : ''}</span>${res.misma ? pill(cuadra ? 'good' : 'bad', cuadra ? (exacto ? '✓ cuadra' : '✓ cuadra (redondeo)') : `no cuadra por ${fPz(Math.abs(dif))} pz: avisa a BI`) : ''}</div>
+  <div class="seg" role="group" aria-label="Agrupar por" style="margin-bottom:10px">${libres.map(d => `<button type="button" data-rs-dim="${d[0]}" aria-pressed="${RS.dim === d[0]}">${d[1]}</button>`).join('')}<button type="button" data-rs-dim="lineas" aria-pressed="${RS.dim === 'lineas'}">${nomLineas}</button></div>`;
   if (RS.dim === 'lineas') {
-    const vis = L.slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, RS.lim);
-    h += `<div class="tw" role="region" tabindex="0" aria-label="Líneas de factura" style="max-height:460px"><table class="tbl"><thead><tr><th class="l">Fecha</th><th class="l">Factura</th><th class="l">Cliente</th><th class="l">Tipo · provincia · agente</th><th class="l">Código del archivo → PT</th><th>Unidades del archivo</th><th class="l">Unidad del reporte</th><th>Factor (pz)</th><th>Piezas</th></tr></thead><tbody>
-    ${vis.map(l => `<tr><td class="l">${res.mensual ? esc(ml(l.mes)) : fechaCorta(l.fecha)}</td><td class="l">${esc(l.factura || '—')}</td><td class="l" style="white-space:normal;min-width:180px">${esc(l.cli)} <span class="muted small">${esc(l.cod)}</span></td><td class="l small" style="white-space:normal;min-width:160px">${esc(l.tipo)} · ${esc(l.prov)} · ${esc(l.agente)}</td><td class="l small">${esc(l.codArch || '—')} → ${esc(l.pt || p.principal)}</td><td class="${l.pz < 0 ? 'down' : ''}">${fN1(l.u)}</td><td class="l">${esc(l.urep)}</td><td>× ${l.factor == null ? '—' : nf1.format(l.factor)}</td><td><b>${fN1(l.pz)}</b></td></tr>`).join('')}
-    </tbody><tfoot><tr><th class="l" colspan="8" scope="row">Total del nivel (${fN(L.length)} líneas) · en ${esc(uNom(p))}: ${fN1(totN / f)}</th><td>${fN(totN)}</td></tr></tfoot></table></div>
+    const vis = L.slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, RS.lim), nCol = res.conFactura ? 8 : 7;
+    h += `<div class="tw" role="region" tabindex="0" aria-label="${nomLineas}" style="max-height:460px"><table class="tbl"><thead><tr><th class="l" scope="col">${res.mensual ? 'Mes' : 'Fecha'}</th>${res.conFactura ? '<th class="l" scope="col">Factura</th>' : ''}<th class="l" scope="col">${punto}</th><th class="l" scope="col">${res.soloSO ? 'Formato · provincia' : 'Tipo · provincia' + (res.conAgente ? ' · agente' : '')}</th><th class="l" scope="col">Código del archivo → PT</th><th scope="col">Unidades del archivo</th><th class="l" scope="col">Unidad del reporte</th><th scope="col">Factor (pz)</th><th scope="col">Piezas</th></tr></thead><tbody>
+    ${vis.map(l => `<tr><td class="l">${l.porMes ? esc(ml(l.mes)) : fechaCorta(l.fecha)}</td>${res.conFactura ? `<td class="l">${esc(l.factura || '—')}</td>` : ''}<td class="l" style="white-space:normal;min-width:180px">${esc(l.cli)} <span class="muted small">${esc(l.cod)}</span></td><td class="l small" style="white-space:normal;min-width:160px">${esc(l.tipo)} · ${esc(l.prov)}${res.conAgente ? ' · ' + esc(l.agente) : ''}</td><td class="l small">${esc(l.codArch || '—')} → ${esc(l.pt || p.principal)}</td><td class="${l.pz < 0 ? 'down' : ''}">${fPz(l.u)}</td><td class="l">${esc(l.urep)}</td><td>× ${l.factor == null ? '—' : nfd.format(l.factor)}</td><td><b>${fPz(l.pz)}</b></td></tr>`).join('')}
+    </tbody><tfoot><tr><th class="l" colspan="${nCol}" scope="row">Total del nivel (${fN(L.length)} ${nLin}) · en ${esc(uNom(p))}: ${fN1(totN / f)}</th><td>${fPz(totN)}</td></tr></tfoot></table></div>
     ${L.length > RS.lim ? `<div class="mas"><button type="button" class="btn" data-rs-mas>Mostrar ${Math.min(200, L.length - RS.lim)} líneas más (${L.length - RS.lim} restantes)</button></div>` : ''}`;
   } else {
     const d = dims.find(x => x[0] === RS.dim), g = new Map();
     L.forEach(l => { const k = d[2](l), o = g.get(k) || { pz: 0, n: 0, ult: '', fact: new Set() }; o.pz += l.pz; o.n++; if (l.fecha > o.ult) o.ult = l.fecha; if (l.factura) o.fact.add(l.factura); g.set(k, o); });
     const rows = [...g.entries()].sort((a, b) => d[0] === 'fecha' ? a[0].localeCompare(b[0]) : b[1].pz - a[1].pz), mx = Math.max(...rows.map(r => Math.abs(r[1].pz)), 1);
-    h += `<div class="tw" role="region" tabindex="0" aria-label="Demanda por ${esc(d[1])}" style="max-height:460px"><table class="tbl drill"><thead><tr><th class="l">${esc(d[1])}</th><th>Piezas</th><th>${esc(S.unidad === 'pz' ? 'Piezas' : uNom(p))}</th><th>% del nivel</th><th>Líneas</th>${res.clase.tieneFactura ? '<th>Facturas</th>' : ''}<th class="l">Última fecha</th></tr></thead><tbody>
-    ${rows.slice(0, 300).map(([k, o]) => `<tr data-rs-ir="${esc(k)}" tabindex="0"><td class="l"><b>${esc(d[0] === 'fecha' ? fechaCorta(k) : k)}</b></td><td>${fN1(o.pz)}</td><td>${fN1(o.pz / f)}</td><td>${totN ? nf.format(o.pz / totN * 100) + ' %' : '—'}<span class="barpct" style="width:${(Math.abs(o.pz) / mx * 60).toFixed(0)}px" aria-hidden="true"></span></td><td>${o.n}</td>${res.clase.tieneFactura ? `<td>${o.fact.size}</td>` : ''}<td class="l">${res.mensual ? esc(ml(o.ult.slice(0, 7))) : fechaCorta(o.ult)}</td></tr>`).join('')}
-    </tbody><tfoot><tr><th class="l" scope="row">Total (${rows.length} ${rows.length === 1 ? 'grupo' : 'grupos'})</th><td>${fN(totN)}</td><td>${fN1(totN / f)}</td><td>100 %</td><td>${fN(L.length)}</td>${res.clase.tieneFactura ? '<td></td>' : ''}<td></td></tr></tfoot></table></div>
-    <p class="small muted" style="margin-top:6px">Toca una fila para bajar un nivel. Puedes cambiar el orden: agrupa primero por provincia, agente o fecha.${rows.length > 300 ? ' Se muestran los 300 grupos más grandes; el total incluye todos.' : ''}</p>`;
+    h += `<div class="tw" role="region" tabindex="0" aria-label="Demanda por ${esc(d[1])}" style="max-height:460px"><table class="tbl drill"><thead><tr><th class="l" scope="col">${esc(d[1])}</th><th scope="col">Piezas</th><th scope="col">${esc(S.unidad === 'pz' ? 'Piezas' : uNom(p))}</th><th scope="col">% del nivel</th><th scope="col">Líneas</th>${res.conFactura ? '<th scope="col">Facturas</th>' : ''}${res.mensual ? '' : '<th class="l" scope="col">Última fecha</th>'}</tr></thead><tbody>
+    ${rows.slice(0, 300).map(([k, o]) => `<tr data-rs-ir="${esc(k)}" tabindex="0"><td class="l"><b>${esc(d[0] === 'fecha' ? fechaCorta(k) : k)}</b></td><td>${fPz(o.pz)}</td><td>${fN1(o.pz / f)}</td><td>${totN ? nf.format(o.pz / totN * 100) + ' %' : '—'}<span class="barpct" style="width:${(Math.abs(o.pz) / mx * 60).toFixed(0)}px" aria-hidden="true"></span></td><td>${o.n}</td>${res.conFactura ? `<td>${o.fact.size}</td>` : ''}${res.mensual ? '' : `<td class="l">${fechaCorta(o.ult)}</td>`}</tr>`).join('')}
+    </tbody><tfoot><tr><th class="l" scope="row">Total (${rows.length} ${rows.length === 1 ? 'grupo' : 'grupos'})</th><td>${fPz(totN)}</td><td>${fN1(totN / f)}</td><td>100 %</td><td>${fN(L.length)}</td>${res.conFactura ? '<td></td>' : ''}${res.mensual ? '' : '<td></td>'}</tr></tfoot></table></div>
+    <p class="small muted" style="margin-top:6px">Toca una fila para bajar un nivel. Puedes cambiar el orden con los botones de arriba.${rows.length > 300 ? ' Se muestran los 300 grupos más grandes; el total incluye todos.' : ''}</p>`;
   }
+  h += `<p class="tec" style="margin-top:10px">Archivo leído: ${esc(le.ruta || '—')}${le.kb != null ? ' · ' + fKb(le.kb) + (le.gz ? ' comprimido' + (le.kbAbierto != null ? ' (' + fKb(le.kbAbierto) + ' al abrirlo)' : '') : '') : ''} · ${fN(res.L.length)} líneas en ${esc(rango([res.ix.meses[0], res.ix.meses[res.ix.meses.length - 1]]))} · detalle generado el ${esc(res.ix.generado || '—')}.${res.nota ? ' ' + esc(res.nota) : ''}</p>`;
   box.innerHTML = h;
+}
+
+/* ---------- linaje real de unidades (0.3.1): del reporte a piezas, con las filas del detalle de los últimos 12 meses ---------- */
+function htmlLinaje(p, res) {
+  const L12 = MH.slice(-12).filter(m => res.ix.meses.includes(m)), en = new Set(L12), g = new Map();
+  res.L.forEach(l => { if (!en.has(l.mes)) return; const o = g.get(l.li) || { u: 0, pz: 0, n: 0 }; o.u += l.u; o.pz += l.pz; o.n++; g.set(l.li, o); });
+  if (!g.size) return `<p class="prosa">Este producto no tiene filas en el detalle de ${esc(rango(L12))}.</p>`;
+  const rows = [...g.entries()].map(([i, o]) => [res.lins[i] || {}, o]).sort((a, b) => Math.abs(b[1].pz) - Math.abs(a[1].pz));
+  const tot = rows.reduce((a, r) => a + r[1].pz, 0), real = sum(p.real, L12), dif = tot - real, tol = res.tol * L12.length;
+  const exacto = Math.abs(dif) < 0.005, cuadra = Math.abs(dif) <= tol + 1e-9;
+  /* filas donde unidades × factor se aparta de las piezas más que el redondeo de los decimales guardados (0,01 pz por línea): solo el sell in directo, que se redondea factura por factura */
+  const desv = rows.filter(([li, o]) => li.factor != null && Math.abs(o.u * li.factor - o.pz) > Math.max(0.5, 0.01 * o.n));
+  const nf4 = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 4 });
+  const num = v => v == null ? '—' : nfd.format(v), corta = t => esc(t).replace(/([_\[\/])/g, '$1<wbr>'), chico = t => t ? `<small class="muted" style="display:block;white-space:normal;overflow-wrap:anywhere">${corta(t)}</small>` : '';   // <wbr>: los nombres largos se parten en _ [ /
+  return `<p class="small muted" style="margin-bottom:8px">Así llegó este producto en ${esc(rango(L12))}: cada fila es una combinación de archivo de origen, código y unidad del reporte, con el factor que la convierte en piezas. <b>Unidades del reporte × factor = piezas.</b></p>
+  <div class="tw" role="region" tabindex="0" aria-label="Linaje de unidades de ${esc(p.nombre)}" style="max-height:380px"><table class="tbl"><thead><tr><th class="l" scope="col">Archivo de origen</th><th class="l" scope="col">Código del archivo → PT</th><th scope="col">Unidades del reporte</th><th scope="col">Factor (pz)</th><th scope="col">Piezas</th><th scope="col">Líneas</th></tr></thead><tbody>
+  ${rows.map(([li, o]) => `<tr><td class="l" style="white-space:normal;overflow-wrap:anywhere;max-width:170px">${corta(li.archivo || '—')}${chico((FUENTE_NOM[li.fuente] || String(li.fuente || '').toLowerCase()) + (li.distribuidor ? ' · ' + li.distribuidor : ''))}</td>
+    <td class="l" style="white-space:normal;min-width:140px">${esc(li.codArchivo || '—')} → <b>${esc(li.pt || p.principal)}</b>${chico(li.descPt)}${li.codActivo && li.codActivo !== li.codArchivo ? chico('código vigente del distribuidor: ' + li.codActivo) : ''}</td>
+    <td>${nf4.format(o.u)}${chico(String(li.unidadReporte || 'sin unidad').toLowerCase() + (li.combo ? ' · combo de ' + num(li.nComp) + ' componentes' : ''))}</td>
+    <td style="min-width:120px;max-width:190px">${li.factor == null ? 'sin factor: no suma' : '× ' + num(li.factor)}${chico(li.factorCaja != null ? num(li.factorCaja) + ' por caja × ' + num(li.uEstandar) + ' de unidad estándar' : (li.uEstandar != null ? 'unidad estándar ' + num(li.uEstandar) + (li.combo ? ' por componente' : '') : ''))}${chico([li.origenFactorCaja, li.origenUEstandar].filter(Boolean).join(' · '))}</td>
+    <td><b>${fPz(o.pz)}</b></td><td>${fN(o.n)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><th class="l" colspan="4" scope="row">Total del detalle, ${esc(rango(L12))}</th><td>${fPz(tot)}</td><td>${fN(rows.reduce((a, r) => a + r[1].n, 0))}</td></tr></tfoot></table></div>
+  <div class="cuadre"><span class="muted">Demanda de ${esc(rango(L12))} en el portal: ${fN(real)} pz${res.misma && cuadra && !exacto ? ` · diferencia de ${fPz(Math.abs(dif))} pz por redondeo (el portal guarda piezas enteras cada mes)` : ''}</span>${res.misma ? pill(cuadra ? 'good' : 'bad', cuadra ? (exacto ? '✓ cuadra' : '✓ cuadra (redondeo)') : `no cuadra por ${fPz(Math.abs(dif))} pz: avisa a BI`) : pill('', 'detalle de otra corrida: no se compara')}</div>
+  <p class="tec">${desv.length ? `En ${desv.length === 1 ? 'una fila' : desv.length + ' filas'} unidades × factor no da exactamente las piezas: ${desv.some(r => r[0].fuente === 'SELL IN DIRECTO') ? 'el sell in directo se redondea factura por factura antes de sumar' : 'las cantidades del archivo traen decimales'}. ` : ''}Regla de asignación: ${esc([...new Set(rows.map(r => r[0].asignacion).filter(Boolean))].join(' · ') || '—')}. Fuente: detalle/ del rastreo (linajes), archivo ${esc((res.leido || {}).ruta || '—')}.</p>`;
+}
+async function abrirLinaje() {
+  const p = PID[RS.p], box = $('#lj-cuerpo'); if (!p || !box) return;
+  if (!RS.cache[p.id]) box.innerHTML = '<p class="muted">Cargando el detalle de este producto…</p>';
+  const res = await cargarRastreo(p);
+  if (PID[RS.p] !== p || !$('#lj-cuerpo')) return;
+  $('#lj-cuerpo').innerHTML = res.msg ? `<p class="aviso info">${res.msg}</p>` : htmlLinaje(p, res);
 }
 
 /* ---------- guardar ---------- */
@@ -1044,7 +1143,7 @@ function refrescarGrupo(p) {
   const f = fac(p), d = dif(p);
   $$('[data-gt]').forEach(e => { if (e.dataset.gt === p.id) e.textContent = fN1(kamPz6(p) / f); });
   $$('[data-gd]').forEach(e => { if (e.dataset.gd === p.id) { e.textContent = flecha(d) + fP(d); e.className = d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'; } });
-  $$('[data-ga]').forEach(e => { if (e.dataset.ga === p.id) e.innerHTML = avisosCaptura(p).map(([c, x]) => pill(c, x.length > 70 ? x.slice(0, 68) + '…' : x)).join(' '); });
+  $$('[data-ga]').forEach(e => { if (e.dataset.ga === p.id) e.innerHTML = avisosPills(avisosCaptura(p)); });
 }
 let tRef = null;
 function refrescarResumen() {        // repinta solo lo visible
@@ -1127,7 +1226,7 @@ document.addEventListener('focusin', ev => {
   const el = ev.target;
   if (el.classList && el.classList.contains('inp') && el.closest('#v-capturar')) { S.foco = [el.dataset.line, el.dataset.mes]; inspector(el.dataset.line, el.dataset.mes); if (!el.readOnly) el.select(); }
 });
-document.addEventListener('toggle', ev => { if (ev.target.id === 'rs-box' && ev.target.open) abrirRastreo(); }, true);
+document.addEventListener('toggle', ev => { if (ev.target.id === 'rs-box' && ev.target.open) abrirRastreo(); if (ev.target.id === 'lj-box' && ev.target.open) abrirLinaje(); }, true);
 document.addEventListener('input', ev => {
   const el = ev.target;
   if (el.id === 'q') { S.q = el.value; S.lim = 60; debounce(pintarLista); return; }

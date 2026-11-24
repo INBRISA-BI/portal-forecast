@@ -52,7 +52,20 @@
   };
   const item = (c, nombre) => `/drives/${c.driveId}/items/${c.itemId}:/${ruta(nombre)}`;
 
-  /* Lee un archivo JSON. Devuelve {datos, etag}; null si no existe. */
+  /* Texto de una respuesta. Un archivo .gz (detalle del rastreo comprimido, 0.3.1) llega como bytes: OneDrive y Graph entregan
+     el archivo tal cual, sin Content-Encoding, así que se descomprime aquí con DecompressionStream('gzip'). Si un servidor ya lo
+     entregó descomprimido (no empieza con 1F 8B) se usa tal cual. En un navegador sin DecompressionStream se lanza un error con
+     code = 'sin_gzip' y la página pide el .json sin comprimir, que BI publica junto al .gz. */
+  const PUEDE_GZ = typeof DecompressionStream === 'function' && typeof Blob !== 'undefined' && typeof Blob.prototype.stream === 'function';
+  async function textoDe(r, nombre) {
+    if (!/\.gz$/i.test(String(nombre))) return r.text();
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (!(bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b)) return new TextDecoder().decode(bytes);
+    if (!PUEDE_GZ) { const e = new Error('Este navegador no puede abrir archivos comprimidos (.gz)'); e.code = 'sin_gzip'; throw e; }
+    return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+
+  /* Lee un archivo JSON (o .json.gz). Devuelve {datos, etag}; null si no existe. */
   async function leerJson(c, nombre) {
     let meta;
     try { meta = await gj(item(c, nombre) + '?$select=id,eTag,size,@microsoft.graph.downloadUrl'); }
@@ -61,7 +74,7 @@
     let r = null;
     if (url) { try { r = await fetch(url); if (!r.ok) r = null; } catch (e) { r = null; } }
     if (!r) r = await graph('GET', item(c, nombre) + ':/content');
-    return { datos: JSON.parse(await r.text()), etag: meta.eTag };
+    return { datos: JSON.parse(await textoDe(r, nombre)), etag: meta.eTag };
   }
 
   /* Carpetas de KAM que esta cuenta puede abrir. */
@@ -137,20 +150,22 @@
   /* ---------- arranque del portal con los datos de un KAM ---------- */
   function iniciar(D, db, persona, lista, actual, lectura, c) {
     /* Lectura a demanda de otros archivos de la carpeta del KAM (detalle/ del rastreo, linaje.json…), con el mismo leerJson.
-       Una vez por archivo y por sesión; null = el archivo no existe (404). En demostración se lee del servidor local. */
+       Una vez por archivo y por sesión; null = el archivo no existe (404). En demostración se lee del servidor local.
+       Los nombres que terminan en .gz se descomprimen (textoDe); window.portalGzip dice si este navegador puede hacerlo. */
     const cache = new Map();
     window.portalLeer = nombre => {
       const n = String(nombre);
       if (!cache.has(n)) {
         let pr;
         try {
-          pr = DEMO ? fetch(`/_local/${encodeURIComponent(actual)}/${ruta(n)}`).then(r => r.ok ? r.json() : (r.status === 404 ? null : Promise.reject(new Error('HTTP ' + r.status))))
+          pr = DEMO ? fetch(`/_local/${encodeURIComponent(actual)}/${ruta(n)}`).then(r => r.ok ? textoDe(r, n).then(JSON.parse) : (r.status === 404 ? null : Promise.reject(new Error('HTTP ' + r.status))))
             : c ? leerJson(c, n).then(x => x ? x.datos : null) : Promise.resolve(null);
         } catch (e) { pr = Promise.reject(e); }
         cache.set(n, pr.catch(e => { cache.delete(n); throw e; }));
       }
       return cache.get(n);
     };
+    window.portalGzip = PUEDE_GZ;
     window.leerDetalle = nombre => window.portalLeer('detalle/' + nombre);
     const ini = (persona.nombre || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
     const avatar = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><circle cx="24" cy="24" r="24" fill="#5F6B76"/><text x="24" y="30" font-family="Segoe UI,Arial" font-size="18" fill="#fff" text-anchor="middle">${ini}</text></svg>`);
