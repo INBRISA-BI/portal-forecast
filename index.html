@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Forecast</title>
 <style>
-/* Portal de forecast KAM · v0.30 (23/11/2026)
+/* Portal de forecast KAM · v0.4.0 (24/11/2026, en local; base v0.30 del 23/11/2026)
    Layout: barra arriba (KAM, ciclo, guardado) · filtros (distribuidor, vista, unidad) · vistas Tendencia / Capturar / Cómo se calcula
    · detalle del producto en un <dialog> modal · diálogo único "¿De dónde sale este número?".
    Paleta de marca (00_REPORTE DISTRIBUIDORES) y Segoe UI, sin fuentes externas. Solo modo claro, como los reportes de Power BI.
@@ -75,6 +75,7 @@ main{padding-block:8px 48px}
 .mes-e.real{background:var(--neutral-bg)}
 .mes-e.pend{background:var(--neutral-bg);border-style:dotted}
 .mes-e.curso{background:repeating-linear-gradient(135deg,#F1F3F5 0 5px,#E2E7EB 5px 7px)}
+.mes-e.curso span{color:var(--ink-2)}   /* 0.4.0 AA: ink-3 sobre la raya daba 4,47:1 */
 .mes-e.abierto{background:var(--accent-soft);border-color:var(--accent-mark)}
 .hz-ley{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:12px;color:var(--ink-3)}
 .hz-ley i{display:inline-block;width:14px;height:10px;border-radius:3px;border:1px solid var(--line);vertical-align:-1px;margin-right:4px}
@@ -86,6 +87,9 @@ main{padding-block:8px 48px}
 .kpi .big{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .kpi .sub{font-size:12.5px;color:var(--ink-3)}
 .kpi .vr{font-size:13px;font-weight:600}
+.kpi .par{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap}   /* 0.4.0: acierto con su sesgo al lado */
+.kpi .lado{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .lado small{font-size:12px;font-weight:400;color:var(--ink-3);margin-left:4px}
 .kpi .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .kpi .refs{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12.5px;color:var(--ink-3);margin-top:4px}
 .kpi .refs>span:nth-child(2n){text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
@@ -119,7 +123,7 @@ button.n:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border
 /* gráficos */
 .chart{position:relative;width:100%;border-radius:6px}
 .chart svg{display:block;width:100%;overflow:visible}
-.chart text{fill:var(--ink-3);font:11px var(--f-ui);font-variant-numeric:tabular-nums}
+.chart text{fill:var(--ink-3);font:11.5px var(--f-ui);font-variant-numeric:tabular-nums}
 .chart:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 .tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 18px rgba(20,35,44,.12);min-width:190px;z-index:5}
 .tip .t{font-weight:600;margin-bottom:4px}
@@ -150,9 +154,9 @@ table{border-collapse:separate;border-spacing:0}
 
 /* lista de productos */
 .lista{display:flex;flex-direction:column;container:lista/inline-size}
-.lhead,.item{display:grid;grid-template-columns:minmax(0,2.4fr) 130px 96px 120px 1.1fr 1.1fr 100px;gap:12px;align-items:center}
+.lhead,.item,.cat-h{display:grid;grid-template-columns:minmax(0,2.4fr) 130px 96px 120px 1.1fr 1.1fr 100px;gap:12px;align-items:center}
 .lhead{font-size:12px;font-weight:600;color:var(--ink-3);padding:0 10px 8px;border-bottom:1px solid var(--line)}
-.lhead .r,.item .r{text-align:right}
+.lhead .r,.item .r,.cat-h .r{text-align:right}
 .item{padding:10px;border-bottom:1px solid var(--line);cursor:pointer;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left;width:100%}
 .item:hover{background:var(--surface-2)}
 .item .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
@@ -162,10 +166,10 @@ table{border-collapse:separate;border-spacing:0}
 .vacio{padding:28px 10px;color:var(--ink-3);text-align:center}
 @container lista (width < 860px){
   .lhead{display:none}
-  .item{grid-template-columns:1fr 1fr;row-gap:6px}
-  .item .c-nm{grid-column:1 / -1}
-  .item .r{text-align:left}
-  .item [data-l]::before{content:attr(data-l);display:block;font-size:11.5px;font-weight:600;color:var(--ink-3)}
+  .item,.cat-h{grid-template-columns:1fr 1fr;row-gap:6px}
+  .item .c-nm,.cat-h .c-nm{grid-column:1 / -1}
+  .item .r,.cat-h .r{text-align:left}
+  .item [data-l]::before,.cat-h [data-l]::before{content:attr(data-l);display:block;font-size:11.5px;font-weight:600;color:var(--ink-3)}
 }
 
 /* captura */
@@ -173,7 +177,7 @@ table{border-collapse:separate;border-spacing:0}
 table.cap{width:100%;font-size:13px}
 table.cap th,table.cap td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums}
 table.cap thead th{position:sticky;top:0;background:var(--surface-2);font-size:12px;font-weight:600;color:var(--ink-3);z-index:2;vertical-align:bottom}
-table.cap thead th small{display:block;font-weight:400;font-size:11px}
+table.cap thead th small{display:block;font-weight:400;font-size:11.5px}
 table.cap .stk{position:sticky;left:0;background:var(--surface);z-index:1;text-align:left;min-width:220px;max-width:280px;white-space:normal;border-right:1px solid var(--line)}
 table.cap thead .stk{z-index:3;background:var(--surface-2)}
 table.cap tr.grp>*{background:var(--surface-2);text-align:left}
@@ -188,11 +192,11 @@ table.cap td.st-real,table.cap td.st-ref,table.cap td.st-pend{color:var(--ink-3)
 table.cap thead th.st-abierto{color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent-mark)}
 table.cap tfoot td,table.cap tfoot th{font-weight:600;background:var(--surface-2);position:sticky;bottom:0;z-index:1}
 table.cap tfoot .stk{z-index:3}
-.inp{width:80px;text-align:right;border:1px solid #8C979F;border-radius:6px;padding:4px 6px;background:var(--surface);font-variant-numeric:tabular-nums;min-height:var(--target);font-size:max(14px,1em)}
+.inp{width:80px;text-align:right;border:1px solid var(--ink-3);border-radius:6px;padding:4px 6px;background:var(--surface);font-variant-numeric:tabular-nums;min-height:var(--target);font-size:max(14px,1em)}
 @media (pointer:coarse){.inp{font-size:16px}}
 .inp[readonly]{background:var(--surface-2);color:var(--ink-3);border-color:var(--line-2)}
 .inp.ed{border-color:var(--s-kam);background:#FFF5EE;box-shadow:inset 3px 0 0 var(--s-kam)}
-.hint{display:block;font-size:11px;color:var(--ink-3);margin-top:2px;line-height:1.3}
+.hint{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px;line-height:1.3}
 .lock{display:inline-flex;gap:4px;align-items:center}
 .lock svg,svg.ico{width:12px;height:12px;fill:none;stroke:var(--ink-3);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .insp{position:sticky;bottom:0;z-index:5;background:var(--ink);color:#fff;border-radius:8px;padding:10px 14px;display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;font-size:12.5px;box-shadow:0 -4px 18px rgba(20,35,44,.18)}
@@ -290,7 +294,8 @@ dialog.dx{border-radius:12px;max-width:min(640px,calc(100vw - 32px));width:100%;
 .dx-b ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 .dx-tab{width:100%}
 .dx-tab td{padding:4px 0;border-bottom:1px solid var(--line);vertical-align:top}
-.dx-tab td:last-child{text-align:right;font-variant-numeric:tabular-nums;padding-left:12px;white-space:nowrap}
+.dx-tab td:first-child{width:42%}
+.dx-tab td:last-child{text-align:right;font-variant-numeric:tabular-nums;padding-left:12px;white-space:normal;overflow-wrap:break-word}   /* QA B2: un valor largo hace salto de línea, no estira el diálogo */
 .dx-tab tr.tot td{font-weight:600;border-top:1px solid var(--ink-3)}
 
 .solo-movil{display:none}
@@ -311,6 +316,61 @@ dialog.dx{border-radius:12px;max-width:min(640px,calc(100vw - 32px));width:100%;
   .det-in{padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
   dialog.dx{margin:auto 0 0;max-width:100vw;border-radius:14px 14px 0 0}
   .dx-b{max-height:72vh;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+}
+/* ---------- 0.4.0 (24/11/2026, en local) ---------- */
+/* texto técnico solo para BI: body.admin lo pone portal.js a quien ve varias carpetas; body.como-kam = BI viendo lo que ve el KAM */
+.solo-bi{display:none!important}
+body.admin:not(.como-kam) .solo-bi{display:revert!important}
+.solo-admin{display:none!important}
+body.admin .solo-admin{display:inline-flex!important;align-items:center}
+details.tecbox{font-size:12.5px;color:var(--ink-3);border:1px dashed var(--line-2);border-radius:6px;padding:6px 10px;margin-top:6px}
+details.tecbox>summary{cursor:pointer;font-weight:600;min-height:var(--target)}
+details.tecbox>div{margin-top:6px;display:flex;flex-direction:column;gap:6px}
+details.tecbox ul{margin:0;padding-left:18px}
+/* eje y marcas del gráfico */
+.chart text.mk{fill:var(--ink-2);font-weight:600}
+.chart text.dic{fill:var(--ink);font-weight:600}
+.sw.vmk{width:0;height:12px;border-top:0;border-left:2px solid #46535C}
+.sw.vmk.dash{border-left-style:dashed}
+.legend b{color:var(--ink);font-weight:600}
+.mes-e{position:relative}
+.mes-e.fin{border-color:#46535C;box-shadow:inset 0 -2px 0 #46535C}
+.mes-e.fin span{color:var(--ink);font-weight:600}
+.mes-e.anio::before{content:"";position:absolute;left:-4px;top:0;bottom:0;border-left:2px solid #AEB9C2}
+/* unidad del producto: empaque (cajas/packs de N pz) contra piezas sueltas */
+.upill{display:inline-flex;align-items:center;border-radius:4px;padding:0 6px;font-size:11.5px;font-weight:600;white-space:nowrap;border:1px solid transparent;line-height:1.5}
+.upill.emp{background:var(--accent-soft);color:#075E8A}
+.upill.pz{background:var(--surface);color:var(--ink-2);border-color:var(--line-2)}
+/* productos agrupados por categoría */
+details.cat{border-bottom:1px solid var(--line)}
+.cat-h{padding:10px;cursor:pointer;background:var(--surface-2);list-style:none}
+.cat-h::-webkit-details-marker{display:none}
+.cat-h .nm{font-weight:600;display:block}
+.cat-h .nm::before{content:"▸";display:inline-block;width:16px;color:var(--ink-3)}
+details.cat[open]>.cat-h .nm::before{content:"▾"}
+.cat-h .meta{display:block;font-size:12px;color:var(--ink-3);padding-left:16px}
+.cat-h .desc{display:block;font-size:12px;color:var(--ink-3);padding-left:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* qué incluye (categorias.descripcion); completo en el tooltip */
+.cat-h .v{font-variant-numeric:tabular-nums;font-weight:600}
+.cat-h .v small{display:block;color:var(--ink-3);font-size:12px;font-weight:400}
+details.cat[open]>.cat-h{border-bottom:1px solid var(--line)}
+details.cat .item{padding-left:26px}
+details.cat .item:last-of-type{border-bottom:0}
+/* tus distribuidores: cabe a 1366-1400 px (antes la última columna quedaba cortada) */
+.tbl.tdist{table-layout:fixed;min-width:760px}
+.tbl.tdist th{white-space:normal;vertical-align:bottom}
+.tbl.tdist td{white-space:normal}
+.tbl.tdist td .chip{white-space:normal;text-align:left}
+.tbl.tdist .pill{white-space:normal}   /* QA M1: etiquetas largas (GESSA) parten línea en celular */
+@media (max-width:620px){      /* celular: cada distribuidor en una tarjeta, sin desplazarse de lado */
+  .tbl.tdist{min-width:0;table-layout:auto}
+  .tbl.tdist colgroup,.tbl.tdist thead{display:none}
+  .tbl.tdist,.tbl.tdist tbody{display:block}
+  .tbl.tdist tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:10px;border-bottom:1px solid var(--line)}
+  .tbl.tdist tbody tr:last-child{border-bottom:0}
+  .tbl.tdist td{display:block;border:0;padding:0;text-align:left}
+  .tbl.tdist td:nth-child(1),.tbl.tdist td:nth-child(2){grid-column:1 / -1}
+  .tbl.tdist td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;font-weight:600;color:var(--ink-3)}
+  .tbl.tdist td:first-child::before{display:none}
 }
 @media (prefers-reduced-motion:no-preference){
   dialog.det[open]{animation:entra .18s ease-out}
@@ -372,6 +432,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <div class="who"><small>Forecast por distribuidor</small><h1 id="t-kam"></h1></div>
     <div class="ciclo" id="t-ciclo"></div>
     <div class="spacer"></div>
+    <button type="button" class="chip solo-admin" id="b-comokam" aria-pressed="false" title="Solo BI: oculta el detalle técnico para ver la página como la ve el KAM">Ver como KAM</button>
     <div class="estado" id="estado" role="status"><span class="dot"></span><span>Conectando…</span></div>
     <div class="persona" id="persona"></div>
   </div>
@@ -399,14 +460,14 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <section class="panel hz" id="hz" aria-labelledby="hz-t"></section>
     <div class="kpis" id="kpis"></div>
     <section class="panel" aria-labelledby="tt-t">
-      <div class="panel-h"><h2 id="tt-t">Tendencia del mix</h2><span class="nota" id="nota-total">Colones a precio de lista. Pasa el cursor o usa las flechas del teclado sobre el gráfico.</span>
+      <div class="panel-h"><h2 id="tt-t">Tendencia del mix</h2><span class="nota" id="nota-total">Colones a precio de lista</span>
         <span class="der"><button type="button" class="chip" id="b-desde" aria-pressed="false">Desde 2024</button><button type="button" class="chip" data-tabla="ch-total" aria-pressed="false">Ver tabla</button></span></div>
       <div class="chart" id="ch-total"></div>
       <div class="legend" id="lg-total"></div>
       <div id="ch-total-tb"></div>
     </section>
     <section class="panel" aria-labelledby="td-t">
-      <div class="panel-h"><h2 id="td-t">Tus distribuidores</h2><span class="nota">De dónde sale la demanda de cada uno y cómo va tu forecast contra el algoritmo</span></div>
+      <div class="panel-h"><h2 id="td-t">Tus distribuidores</h2><span class="nota">Fuente de la demanda y tu forecast contra el algoritmo</span></div>
       <div id="tab-dist"></div>
     </section>
     <section class="panel" aria-labelledby="mx-t">
@@ -460,7 +521,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=98e4329c"></script>
+<script src="app.js?v=82e06f50"></script>
 <script src="portal.js?v=92b83fa0"></script>
 </body>
 </html>
