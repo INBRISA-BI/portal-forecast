@@ -620,6 +620,50 @@ table.cap tr.grp .gwrap .k72-g{flex-basis:100%;margin-top:2px}
 .c3[data-k81vista="2d"] .k81-solo3d,.c3:not([data-k81vista="2d"]) .k81-solo2d{display:none}
 @media (max-width:620px){.k81-llenado{font-size:12px}.k81-rot{font-size:10.5px;padding:0 4px}}
 /* 081-CONT fin */
+/* 082-MESES inicio · meses anteriores y siguientes (bloqueados) en la fila de cada código: grilla de Capturar y "Tu forecast" del detalle */
+.k82-w{position:relative;display:inline-block;cursor:not-allowed}
+.k82-w>svg.ico{position:absolute;left:7px;top:50%;transform:translateY(-50%);pointer-events:none}
+.k82-in{width:80px;text-align:right;border:1px solid var(--line-2);border-radius:6px;padding:4px 6px 4px 22px;background:var(--surface-2);color:var(--ink-2);font:inherit;font-size:max(14px,1em);font-variant-numeric:tabular-nums;min-height:var(--target);cursor:not-allowed}
+.k82-in::placeholder{color:var(--ink-3);opacity:1}
+.k82-in:focus{outline:2px solid var(--line-2);outline-offset:1px}
+@media (pointer:coarse){.k82-in{font-size:16px}}
+table.cap td.k82-td{font-size:13px}
+table.cap td.k82-td .hint{text-align:right}
+table.cap th.k82-lado,table.cap td.k82-lado{padding:4px 3px;width:1%;text-align:center;background:var(--surface-2)}
+table.cap thead th.k82-lado{vertical-align:middle}
+.k82-tg{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid var(--line-2);background:var(--surface);border-radius:6px;padding:3px 6px;cursor:pointer;color:var(--ink);font:inherit;font-size:13px;font-weight:600;line-height:1.15;min-height:var(--target);min-width:var(--target)}
+.k82-tg small{font-weight:400;font-size:11px;color:var(--ink-3)}
+.k82-tg:hover{border-color:var(--ink-3)}
+.k82-tg[aria-expanded="true"],.k82-nav .k82-b[aria-expanded="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.k82-r{color:var(--ink-3);font-weight:400}
+.seg .k82-b[aria-pressed="true"] .k82-r{color:var(--ink-2)}
+.k82-nav{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center}
+.k82-nav .k82-sig{margin-left:auto}
+.k82-nav .chip{white-space:normal;text-align:left}
+.meses.k82-tira{display:flex;overflow-x:auto;gap:8px;padding:2px 0 8px;scroll-snap-type:x proximity;overscroll-behavior-x:contain;scrollbar-width:thin}
+.meses.k82-tira>.mes{flex:0 0 118px;scroll-snap-align:start}
+.meses.k82-tira>[data-k82-ini]{box-shadow:-5px 0 0 -3px var(--accent)}
+.mes .k82-w{display:block}
+.mes .k82-in{width:100%}
+.mes.k82-mes{font-weight:500}
+.mes.k82-mes small{font-weight:400;font-size:11px}
+@media (max-width:620px){.meses.k82-tira>.mes{flex-basis:104px}.k82-nav .chip{flex:1 1 100%}.k82-nav .k82-sig{margin-left:0}}
+/* guardado explícito: casilla editada y sin guardar (borde punteado ámbar + marca a la izquierda) y barra fija de cambios */
+.inp.k82-sg,textarea.k82-sg{border:1.5px dashed var(--warn);background:var(--warn-bg);box-shadow:inset 3px 0 0 var(--warn)}
+.k82-barra{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:40;display:flex;gap:8px 16px;align-items:center;flex-wrap:wrap;justify-content:space-between;
+  width:min(640px,calc(100vw - 32px));background:var(--ink);color:#fff;border-radius:10px;padding:8px 10px 8px 16px;box-shadow:0 8px 28px rgba(20,35,44,.28);font-size:13.5px}
+.k82-barra[hidden]{display:none}
+.k82-barra .k82-bt{display:inline-flex;gap:8px;align-items:center;min-width:0}
+.k82-barra .k82-pt{width:9px;height:9px;border-radius:50%;background:#F2B544;flex:none}
+.k82-barra .k82-r{color:#C9D2D9}
+.k82-barra .k82-bb{display:flex;gap:8px;margin-left:auto}
+.k82-barra .btn{min-height:var(--target)}
+.k82-barra .btn:not(.pri){background:transparent;color:#fff;border-color:#5A6A75}
+dialog.det .k82-barra{position:static;transform:none;width:auto;border-radius:0;flex:none;padding:8px max(16px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) 20px}
+body.k82-hay .wrap{padding-bottom:76px}
+body.k82-hay .insp{bottom:70px}
+@media (max-width:620px){.k82-barra{bottom:calc(8px + env(safe-area-inset-bottom,0px));width:calc(100vw - 16px);padding:8px 10px}.k82-barra .k82-bb{width:100%}.k82-barra .k82-bb .btn{flex:1 1 0;justify-content:center}body.k82-hay .insp{bottom:118px}}
+/* 082-MESES fin */
 </style>
 <style>
 body.cargando>header,body.cargando>section,body.cargando>main{display:none}
@@ -717,10 +761,10 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
         <input type="search" id="q" placeholder="Buscar producto o código" aria-label="Buscar producto" autocomplete="off" spellcheck="false">
         <select id="f-cat" aria-label="Categoría"><option value="">Todas las categorías</option></select>
         <select id="f-orden" aria-label="Ordenar">
-          <option value="valor">Ordenar: más valor en el algoritmo</option>
+          <option value="valor">Ordenar: más valor en el pronóstico estimado</option>
           <option value="tend">Ordenar: mayor caída de venta</option>
           <option value="dias">Ordenar: más días de inventario</option>
-          <option value="dif">Ordenar: más lejos del algoritmo</option>
+          <option value="dif">Ordenar: más lejos del pronóstico estimado</option>
         </select>
         <div class="chips" id="chips"></div>
         <button type="button" class="chip" id="b-agrupar" data-agrupar aria-pressed="false" title="Junta las filas del mismo producto de todos tus distribuidores">Agrupar por producto</button>
@@ -753,7 +797,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     </section>
     <div id="grid-box"><div class="tw cap-wrap" role="region" tabindex="0" aria-label="Captura del forecast"><table class="cap" id="grid"></table></div></div>
     <div id="grid-mas"></div>
-    <div class="insp vacio" id="insp" aria-live="polite"><span>Toca una casilla para ver sus referencias: algoritmo, tu forecast anterior y la venta del mismo mes del año pasado.</span></div>
+    <div class="insp vacio" id="insp" aria-live="polite"><span>Toca una casilla para ver sus referencias: pronóstico estimado, tu forecast anterior y la venta del mismo mes del año pasado.</span></div>
   </section>
 
   <section class="view" id="v-distribuidores" hidden>
@@ -776,8 +820,8 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=02a42975"></script>
-<script src="portal.js?v=26a93b56"></script>
+<script src="app.js?v=56198a26"></script>
+<script src="portal.js?v=4b02597e"></script>
 </body>
 </html>
 

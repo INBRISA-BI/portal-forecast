@@ -190,7 +190,8 @@
     };
     if (DEMO || lectura) {      // en solo lectura (BI mirando) y en demostración no se escribe nada
       const real = db.doc;
-      db.doc = ruta => { const d = real(ruta); return { set: () => Promise.resolve(), onSnapshot: d.onSnapshot || (cb => cb({ exists: false })) }; };
+      /* 082-MESES: en demostración la llamada a set() queda registrada en window.portalDemoGuardados (para las pruebas), sin escribir nada */
+      db.doc = ruta => { const d = real(ruta); return { set: body => { (window.portalDemoGuardados = window.portalDemoGuardados || []).push({ ruta, body }); return Promise.resolve(); }, onSnapshot: d.onSnapshot || (cb => cb({ exists: false })) }; };
     }
     return db;
   }
@@ -231,21 +232,28 @@
     // Quien tiene acceso a varias carpetas (BI) ve además: volver a la lista, cambiar de KAM y el modo (solo lectura o edición)
     const pe = $('#persona');
     const boton = (id, texto, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.id = id; b.textContent = texto; b.onclick = fn; return b; };
+    /* 082-MESES: guardado explícito. Antes de salir de la página con cambios sin guardar se pide confirmación (el beforeunload de la página no se repite) */
+    const salirOk = () => {
+      const n = typeof window.portalSinGuardar === 'function' ? window.portalSinGuardar() : 0;
+      if (n && !confirm(`Tienes ${n === 1 ? '1 cambio' : n + ' cambios'} sin guardar. Si sales ahora se pierden. ¿Salir sin guardar?`)) return false;
+      window.portalSalidaConfirmada = true; return true;
+    };
     if (lista.length > 1) {
       document.body.classList.add('admin');
       const sel = document.createElement('select'); sel.id = 'sel-kam'; sel.setAttribute('aria-label', 'KAM');
       lista.forEach(x => { const o = document.createElement('option'); o.value = x.kam; o.textContent = titulo(x.kam); o.selected = x.kam === actual; sel.appendChild(o); });
-      sel.onchange = () => { PARAMS.set('kam', sel.value); PARAMS.delete('editar'); location.search = PARAMS.toString(); };
-      pe.parentNode.insertBefore(boton('b-todos', 'Todos los KAM', () => { PARAMS.delete('kam'); PARAMS.delete('editar'); location.search = PARAMS.toString(); }), pe);
+      sel.onchange = () => { if (!salirOk()) { sel.value = actual; return; } PARAMS.set('kam', sel.value); PARAMS.delete('editar'); location.search = PARAMS.toString(); };
+      pe.parentNode.insertBefore(boton('b-todos', 'Todos los KAM', () => { if (!salirOk()) return; PARAMS.delete('kam'); PARAMS.delete('editar'); location.search = PARAMS.toString(); }), pe);
       pe.parentNode.insertBefore(sel, pe);
       pe.parentNode.insertBefore(boton('b-modo', lectura ? 'Editar' : 'Dejar de editar', () => {
         if (lectura && !confirm(`Vas a editar el forecast de ${titulo(D.kam)}. Lo que cambies queda guardado en su captura, a tu nombre.`)) return;
+        if (!lectura && !salirOk()) return;      // "Dejar de editar" con cambios sin guardar
         if (lectura) PARAMS.set('editar', '1'); else PARAMS.delete('editar');
         location.search = PARAMS.toString();
       }), pe);
     }
-    if (expo) pe.parentNode.insertBefore(boton('b-ordenes', 'Órdenes de exportación', () => { PARAMS.set('ordenes', '1'); location.search = PARAMS.toString(); }), pe);
-    if (pca) pe.parentNode.appendChild(boton('b-salir', 'Salir', salir));
+    if (expo) pe.parentNode.insertBefore(boton('b-ordenes', 'Órdenes de exportación', () => { if (!salirOk()) return; PARAMS.set('ordenes', '1'); location.search = PARAMS.toString(); }), pe);
+    if (pca) pe.parentNode.appendChild(boton('b-salir', 'Salir', () => { if (salirOk()) salir(); }));
     if (lectura) soloLectura();
   }
   const salir = () => pca.logoutRedirect({ account: cuenta, postLogoutRedirectUri: location.origin + location.pathname });

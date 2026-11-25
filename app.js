@@ -52,7 +52,7 @@ const VENCIDO = !!CAP_HASTA && new Date() > new Date(CAP_HASTA + 'T23:59:59-06:0
 const editable = m => !VENCIDO && MK.includes(m);
 const OFICIAL_CURSO = !!(CAL || D.mesEnCurso);                                         // v2: el valor del mes en curso es el oficial (BHIST)
 function estadoMes(m) { if (m <= D.corte) return 'real'; if (m < MC) return 'pend'; if (m === MC) return 'curso'; return MK.includes(m) ? 'abierto' : 'ref'; }
-const EST = { real: 'Cerrado · venta real', pend: 'Cerrado · real pendiente', curso: 'En curso · no se captura', abierto: 'Abierto para captura', ref: 'Referencia · fuera de la captura (algoritmo)' };
+const EST = { real: 'Cerrado · venta real', pend: 'Cerrado · real pendiente', curso: 'En curso · no se captura', abierto: 'Abierto para captura', ref: 'Referencia · fuera de la captura (pronóstico estimado)' };
 const EST_C = { real: 'real', pend: 'pendiente', curso: 'en curso', abierto: 'captura', ref: 'referencia' };
 const ULT_MF = MF[MF.length - 1];
 const mesesAnio = () => { const o = []; for (let m = D.corte.slice(0, 4) + '-01'; m <= ULT_MF; m = addM(m, 1)) o.push(m); return o; };
@@ -367,7 +367,7 @@ function alertas(p) {
   if (p.cierre !== 'OK') a.push(['bad', p.cierre === 'REVISAR' ? 'Dato a revisar' : p.cierre.charAt(0) + p.cierre.slice(1).toLowerCase()]);
   const e = estInv(dias(p), p.clase); if (e && e[0] && e[0] !== 'good') a.push([e[0] === 'bad' ? 'bad' : 'warn', e[1]]);
   const df = dif(p);
-  if (df != null && Math.abs(df) > 0.5 && pv(p, algPz6(p) + kamPz6(p)) > 300000) a.push(['warn', 'Tu forecast muy ' + (df > 0 ? 'arriba' : 'abajo') + ' del algoritmo']);
+  if (df != null && Math.abs(df) > 0.5 && pv(p, algPz6(p) + kamPz6(p)) > 300000) a.push(['warn', 'Tu forecast muy ' + (df > 0 ? 'arriba' : 'abajo') + ' del pronóstico estimado']);
   if (p.precioPz == null) a.push(['bad', 'Sin precio']);
   return a;
 }
@@ -393,12 +393,12 @@ function avisosCaptura(p) {
     const fuertes = sobre.filter(m => kamU(c, m) * fz > X3M * mh.pz), suaves = sobre.filter(m => !fuertes.includes(m));
     const peor = ms => ms.reduce((a, m) => kamU(c, m) * fz / alg(m) > kamU(c, a) * fz / alg(a) ? m : a, ms[0]);
     if (fuertes.length) { const m = peor(fuertes);
-      out.push(['bad', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo y más de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). En ${ml(m)} el forecast registrado es ${fN(kamU(c, m) * fz)} pz y el algoritmo indica ${fN(alg(m))}.${suaves.length ? ` También pasan de ${veces} veces el algoritmo, sin llegar a ese máximo: ${suaves.map(ml).join(', ')}.` : ''} Registre el motivo en el comentario`, `${c.cod}: ${fuertes.map(ml).join(', ')} más de ${veces}× el algoritmo y de ${vecesM}× su mejor mes`]); }
+      out.push(['bad', `${c.cod}: en ${fuertes.map(ml).join(', ')} tu forecast es más de ${veces} veces el pronóstico estimado y más de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). En ${ml(m)} el forecast registrado es ${fN(kamU(c, m) * fz)} pz y el pronóstico estimado indica ${fN(alg(m))}.${suaves.length ? ` También pasan de ${veces} veces el pronóstico estimado, sin llegar a ese máximo: ${suaves.map(ml).join(', ')}.` : ''} Registre el motivo en el comentario`, `${c.cod}: ${fuertes.map(ml).join(', ')} más de ${veces}× el pronóstico estimado y de ${vecesM}× su mejor mes`]); }
     else if (suaves.length) { const m = peor(suaves);        // la nota gris sale sola: si el código ya tiene aviso fuerte, sus otros meses van dentro de ese aviso
-      out.push(['nota', `${c.cod}: en ${suaves.map(ml).join(', ')} tu forecast es más de ${veces} veces el algoritmo (${ml(m)}: ${fN(kamU(c, m) * fz)} pz contra ${fN(alg(m))}), pero no pasa de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). Es solo una nota`, `${c.cod}: ${suaves.map(ml).join(', ')} más de ${veces}× el algoritmo`]); }
+      out.push(['nota', `${c.cod}: en ${suaves.map(ml).join(', ')} tu forecast es más de ${veces} veces el pronóstico estimado (${ml(m)}: ${fN(kamU(c, m) * fz)} pz contra ${fN(alg(m))}), pero no pasa de ${vecesM} veces ${mh.de} (${fN(mh.pz)} pz). Es solo una nota`, `${c.cod}: ${suaves.map(ml).join(', ')} más de ${veces}× el pronóstico estimado`]); }
     const tiene = MK.some(m => kamU(c, m) > 0);
     if (k.sinVenta >= SV.min && k.sinVenta <= SV.max && tiene) out.push(['warn', `${c.cod}: hace ${fN(k.sinVenta)} ${k.sinVenta === 1 ? 'mes' : 'meses'} que no vende (última venta ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). ¿Sigue activo?`]);
-    if (k.estado !== 'ACTIVO' && tiene) out.push(['bad', `${c.cod}: lleva ${fN(k.sinVenta)} meses sin venta y el algoritmo lo deja en 0, pero tu forecast tiene unidades. Revisa si sigue vigente`]);
+    if (k.estado !== 'ACTIVO' && tiene) out.push(['bad', `${c.cod}: lleva ${fN(k.sinVenta)} meses sin venta y el pronóstico estimado lo deja en 0, pero tu forecast tiene unidades. Revisa si sigue vigente`]);
   });
   const orden = { bad: 0, warn: 1, nota: 2 };
   return out.sort((a, b) => orden[a[0]] - orden[b[0]]);                  // lo fuerte primero; las notas al final
@@ -471,7 +471,7 @@ function abrirExp(o) {
   const d = $('#dx'); if (!d.open) d.showModal();
 }
 const FUENTE_UNID = 'Tu formulario vigente (02 FORMULARIOS FCST CARGA MENSUAL, columnas de unidades por mes) más lo que cambies en este portal (captura_&lt;ciclo&gt;.json en tu carpeta)';
-const FUENTE_ALG = 'Algoritmo del motor (07 MOTOR FCST, notebook 02 → FCST_ALGORITMO.xlsx, columna FCST_PIEZAS)';
+const FUENTE_ALG = 'Pronóstico estimado: algoritmo del motor (07 MOTOR FCST, notebook 02 → FCST_ALGORITMO.xlsx, columna FCST_PIEZAS)';
 const FUENTE_PRECIO = 'Precio de lista por distribuidor (MAESTROS.xlsx, hoja PRECIOS; respaldo FCST_ALGORITMO). Precio por pieza = precio del código principal ÷ sus piezas';
 const FUENTE_BHIST = 'Forecast histórico: BHIST (la carpeta de cada mes guarda tu número para ese mes)';
 const FUENTE_REAL = 'Venta real: demanda de cada distribuidor (sell through / sell out / sell in directo)';
@@ -480,7 +480,7 @@ const FUENTE_SI_PZ = 'Facturación de Brinova (DATA SELL IN): piezas = unidades 
 /* versión corta que ve el KAM; la larga queda en el detalle técnico de BI */
 const CORTO = new Map([
   [FUENTE_UNID, 'Tu formulario vigente más lo que cambies en este portal'],
-  [FUENTE_ALG, 'El algoritmo del motor de forecast'],
+  [FUENTE_ALG, 'El pronóstico estimado del motor de forecast'],
   [FUENTE_PRECIO, 'Precio de lista de cada distribuidor'],
   [FUENTE_BHIST, 'Tu forecast oficial de cada mes'],
   [FUENTE_REAL, 'Venta real: la demanda de cada distribuidor'],
@@ -660,15 +660,15 @@ const EXP = {
     return { t: 'Tu forecast · meses de captura', v: fC(r.kam), u: 'colones a precio de lista',
       que: `Lo que esperas vender en <b>${rango(MK)}</b> en ${esc(distTxt())}: tu formulario vigente más lo que cambies aquí. No incluye ${mll(MC)} (mes en curso, solo lectura).`,
       formula: 'Σ por código y mes de (unidades del código × precio de lista del código)',
-      filas: [['En piezas (unidad estándar)', fN(r.pzk) + ' pz'], ['Algoritmo, mismo periodo', fC(r.alg)], ['Diferencia contra el algoritmo', flecha(r.difK) + fP(r.difK)]]
+      filas: [['En piezas (unidad estándar)', fN(r.pzk) + ' pz'], ['Pronóstico estimado, mismo periodo', fC(r.alg)], ['Diferencia contra el pronóstico estimado', flecha(r.difK) + fP(r.difK)]]
         .concat(top.map(([p, v]) => ['· ' + esc(p.nombre) + ' (' + esc(p.clase) + ')', fC(v)])),
       fuentes: [FUENTE_UNID, FUENTE_PRECIO], tec: 'productos[].codigos[].kam (unidades del formulario) × .precio', nota: r.sinPrecio ? `${r.sinPrecio} productos no tienen precio de lista: no suman colones.` : '' };
   },
   k_alg() {
     const sel = selDist(), r = resumen(sel);
-    return { t: 'Algoritmo · meses de captura', v: fC(r.alg), u: 'colones a precio de lista',
+    return { t: 'Pronóstico estimado · meses de captura', v: fC(r.alg), u: 'colones a precio de lista',
       que: `Lo que propone el motor para <b>${rango(MK)}</b> en ${esc(distTxt())}, a partir de la demanda real. Es tu punto de partida, no tu número.`,
-      formula: 'Σ por producto y mes de (piezas del algoritmo × precio de lista por pieza)',
+      formula: 'Σ por producto y mes de (piezas del pronóstico estimado × precio de lista por pieza)',
       filas: [['En piezas (unidad estándar)', fN(r.pza) + ' pz'], ['Productos', fN(sel.length)], ['Cálculo por producto', 'base × temporada, con reglas (ver “Cómo se calcula”)']],
       fuentes: [FUENTE_ALG, FUENTE_PRECIO], tec: 'productos[].alg (piezas por mes) × productos[].precioPz' };
   },
@@ -758,8 +758,8 @@ const EXP = {
   },
   p_alg(ds) {
     const p = PID[ds.p], f = fac(p);
-    return { t: 'Algoritmo · ' + p.nombre, v: fN1(algPz6(p) / f), u: uNom(p) + ' en ' + rango(MK),
-      que: 'Suma de lo que propone el algoritmo para los meses de captura (todas las presentaciones del producto).',
+    return { t: 'Pronóstico estimado · ' + p.nombre, v: fN1(algPz6(p) / f), u: uNom(p) + ' en ' + rango(MK),
+      que: 'Suma de lo que propone el pronóstico estimado para los meses de captura (todas las presentaciones del producto).',
       formula: 'Σ meses de captura de (base mensual × índice de temporada), con las reglas de intermitentes y de 6 meses sin venta',
       filas: MK.map(m => [ml(m), fN1((p.alg[m] || 0) / f)]).concat([['Total', fN1(algPz6(p) / f), 1], ['Valor a precio de lista', fC(pv(p, algPz6(p)))]]),
       fuentes: [FUENTE_ALG], tec: 'productos[].alg (piezas) · por código en productos[].codigos[].calc' };
@@ -770,7 +770,7 @@ const EXP = {
       que: 'Suma de tus unidades en los meses de captura, de todos los códigos del producto, convertidas a una sola unidad.',
       formula: 'Σ códigos y meses de (unidades del código × piezas por unidad) ÷ piezas de la unidad mostrada',
       filas: p.codigos.filter(c => MK.some(m => kamU(c, m))).map(c => { const u = MK.reduce((a, m) => a + kamU(c, m), 0); return [esc(c.cod) + ' · ' + esc(cNom(c)), fN(u) + ' ' + esc(plural(presDe(c))) + ' × ' + fN(c.pzPorU) + ' = ' + fN(u * (c.pzPorU || 0)) + ' pz']; })
-        .concat([['Total', fN(kamPz6(p)) + ' pz = ' + fN1(kamPz6(p) / f) + ' ' + uNom(p), 1], ['Contra el algoritmo', flecha(d) + fP(d)], ['Valor a precio de lista', fC(kamValM(p, MK))]]),
+        .concat([['Total', fN(kamPz6(p)) + ' pz = ' + fN1(kamPz6(p) / f) + ' ' + uNom(p), 1], ['Contra el pronóstico estimado', flecha(d) + fP(d)], ['Valor a precio de lista', fC(kamValM(p, MK))]]),
       fuentes: [FUENTE_UNID, FUENTE_PRECIO], tec: 'productos[].codigos[].kam + captura; piezas por código = codigos[].pzPorU (T_SKU · UNIDAD DE EMPAQUE)' };
   },
   p_cierre(ds) {
@@ -797,8 +797,8 @@ const EXP = {
     const fo = (D.formularios || {})[m], sinForm = CAL && (CAL.mesesSinFormulario || []).includes(m);
     const filas = [['Estado del mes', EST[e]], ['Forecast vigente (' + (e === 'curso' && OFICIAL_CURSO ? 'oficial' : 'formulario') + ')', sinForm ? 'sin formulario previo: parte de 0' : vig(c, m) == null ? 'no viene en el formulario' : fN(vig(c, m)) + ' ' + un + (fo ? BI(' · carpeta ' + esc(fo.carpeta)) : '')]];
     if (e === 'abierto') filas.push(['Tu valor ahora', fN(kamU(c, m)) + ' ' + un + (editado(c, m) ? ' (cambiado)' : ''), 1]);
-    filas.push(['Algoritmo del producto, en esta unidad', pc && c.pzPorU ? fN1((p.alg[m] || 0) / u) + ' ' + un : 'se muestra en el código principal ' + esc(p.principal)]);
-    if (c.calc && c.calc.fc && c.calc.fc[m] != null && !pc) filas.push(['Algoritmo de este código', fN1(c.calc.fc[m] / u) + ' ' + un]);
+    filas.push(['Pronóstico estimado del producto, en esta unidad', pc && c.pzPorU ? fN1((p.alg[m] || 0) / u) + ' ' + un : 'se muestra en el código principal ' + esc(p.principal)]);
+    if (c.calc && c.calc.fc && c.calc.fc[m] != null && !pc) filas.push(['Pronóstico estimado de este código', fN1(c.calc.fc[m] / u) + ' ' + un]);
     filas.push(['Venta real ' + ml(aa) + ' (todo el producto)', fN1((p.real[aa] || 0) / u) + ' ' + un]);
     const s = siU(p, c, aa); filas.push(['Sell in ' + ml(aa), s == null ? '—' : fN1(s) + ' ' + un]);
     if (c.kamPasado && c.kamPasado[aa] != null) filas.push(['Forecast registrado para ' + ml(aa), fN(c.kamPasado[aa]) + ' ' + un]);
@@ -972,7 +972,7 @@ function seriesDe(sel, p) {
   s.push({ nombre: realNombre(sel), tipo: 'line', color: COL.real, data: agg((pp, m) => conv(pp.real[m], pp), MH) });
   const kp = agg((pp, m) => conv(pp.kamPasadoPz && pp.kamPasadoPz[m], pp), pas); Object.keys(kp).forEach(k => { if (!kp[k]) delete kp[k]; });
   s.push({ nombre: 'Forecast registrado (ciclos anteriores)', tipo: 'ring', color: COL.kam, data: kp });
-  s.push({ nombre: 'Algoritmo', tipo: 'dash', color: COL.alg, data: agg((pp, m) => conv(pp.alg[m], pp), MF) });
+  s.push({ nombre: 'Pronóstico estimado (FCST)', tipo: 'dash', color: COL.alg, data: agg((pp, m) => conv(pp.alg[m], pp), MF) });
   s.push({ nombre: 'Forecast KAM vigente (con ajustes)', tipo: 'lm', color: COL.kam, data: agg((pp, m) => p ? kamPz(pp, m) / f : kamVal(pp, m), kamMs) });
   s.forEach(x => { if (!x.key) x.key = SER_KEY[x.tipo] || x.nombre; });      // 070-GRAFICO: clave estable para prender/apagar la serie
   return s;
@@ -1004,11 +1004,11 @@ function pintarEncabezado() {
     `<button type="button" data-d="${esc(c)}" aria-pressed="${S.dist === c}">${c === 'TODOS' ? 'Todos' : esc(c)}<span class="c">${n(c)}</span></button>`).join('');
   const cats = [...new Set(P.map(p => p.cat).filter(Boolean))].sort();
   $('#f-cat').innerHTML = '<option value="">Todas las categorías</option>' + cats.map(c => `<option${c === S.cat ? ' selected' : ''}>${esc(c)}</option>`).join('');
-  const ch = [['todos', 'Todos'], ['alerta', 'Con alerta'], ['invbajo', 'Riesgo de quiebre'], ['invalto', 'Sobrestock o exceso'], ['dif', 'Lejos del algoritmo'], ['cae', 'Venta cayendo'], ['aviso', 'Con aviso de captura']];
+  const ch = [['todos', 'Todos'], ['alerta', 'Con alerta'], ['invbajo', 'Riesgo de quiebre'], ['invalto', 'Sobrestock o exceso'], ['dif', 'Lejos del pronóstico estimado'], ['cae', 'Venta cayendo'], ['aviso', 'Con aviso de captura']];
   $('#chips').innerHTML = ch.map(([k, t]) => `<button type="button" class="chip" data-chip="${k}" aria-pressed="${S.chip === k}">${t}</button>`).join('');
-  const ch2 = [['todos', 'Todos'], ['editados', 'Que cambié'], ['dif', 'Lejos del algoritmo'], ['aviso', 'Con aviso']];
+  const ch2 = [['todos', 'Todos'], ['editados', 'Que cambié'], ['dif', 'Lejos del pronóstico estimado'], ['aviso', 'Con aviso']];
   $('#chips2').innerHTML = ch2.map(([k, t]) => `<button type="button" class="chip" data-chip2="${k}" aria-pressed="${S.chip2 === k}">${t}</button>`).join('');
-  $('#f-capv').innerHTML = [['abiertos', 'Meses de captura'], ['curso', '+ mes en curso'], ['todo', 'Todo el año']].map(([k, t]) => `<button type="button" data-capv="${k}" aria-pressed="${S.capVista === k}">${t}</button>`).join('');
+  $('#f-capv').innerHTML = k82Boton('ant', '', true) + k82Boton('sig', '', true);      // 082-MESES: meses anteriores / siguientes (bloqueados) en todas las filas
   document.querySelectorAll('#f-unidad button').forEach(b => b.setAttribute('aria-pressed', b.dataset.u === S.unidad));
   const t3 = $('#tab-c3'); if (t3) t3.hidden = !conExportacion();      // 0.5.0: vista 3D solo para exportación
   const bk = $('#b-comokam'); if (bk) { const on = document.body.classList.contains('como-kam'); bk.setAttribute('aria-pressed', on); }
@@ -1057,8 +1057,8 @@ function pintarKpis() {
   const viejas = [...new Set(sel.filter(p => p.inv).map(p => p.clase))].filter(invViejo);
   const vl = S.dist !== 'TODOS' && !S.prod ? ventaLocalDe(S.dist) : null;      // venta en la moneda del distribuidor (cuando venga en datos.json; es del distribuidor completo, no de un producto)
   const cls = v => v == null ? 'muted' : v >= 0 ? 'up' : 'down';
-  const k1 = tarjeta('Tu forecast · ' + esc(rango(MK)), nb('k_kam', fC(r.kam)), r.difK == null ? '' : `${flecha(r.difK)}${fP(r.difK)} contra el algoritmo`, r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted',
-    [['Algoritmo', nb('k_alg', fC(r.alg))], ['En piezas', fN(r.pzk) + ' pz']]);
+  const k1 = tarjeta('Tu forecast · ' + esc(rango(MK)), nb('k_kam', fC(r.kam)), r.difK == null ? '' : `${flecha(r.difK)}${fP(r.difK)} contra el pronóstico estimado`, r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted',
+    [['Pronóstico estimado', nb('k_alg', fC(r.alg))], ['En piezas', fN(r.pzk) + ' pz']]);
   const k2 = tarjeta('Venta real · ' + esc(rango(tri)), nb('k_venta3', fC(r.d3)), t == null ? '' : `${flecha(t)}${fP(t)} contra el año anterior`, cls(t),
     [['Año anterior', fC(r.d3ly)], vl ? [`<span title="${esc(vl.queEs || 'Venta en la moneda del distribuidor')}">En ${esc(vl.moneda)}</span>`, esc(fMon(vl.total3, vl.moneda)) + (var3Local(vl) ? ' · ' + var3Local(vl) : '')] : null]);
   let k3;
@@ -1217,11 +1217,11 @@ function pintarDistribuidores() {
     const inc = INCOMP[cl] || [], ult = d.ultimoMes, pk = precKam(cl), sg = pk ? pkSes(pk) : r2.sesgo;
     return `<tr><td class="l" data-l="Distribuidor"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
       <td class="l" data-l="Fuente de la demanda" style="white-space:normal">${pill('src', fuenteTxt(cl))}${pillsMeses(cl)}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
-      <td data-l="Productos">${s2.length}</td><td data-l="Avance del forecast" class="l">${k72CeldaDist(cl)}</td>${conLocal ? `<td data-l="Venta 3 meses (moneda local)">${vlc ? `<span title="${esc(vlc.queEs || '')}">${esc(fMon(vlc.total3, vlc.moneda))}</span>` + (var3Local(vlc) ? `<small class="${/^sin/.test(var3Local(vlc)) ? 'muted' : vlc.var3 >= 0 ? 'up' : 'down'}" style="display:block">${var3Local(vlc)}</small>` : '') + (vlc.sellIn && ok(vlc.sellIn.razonPrecio12) ? BI(`<small class="muted" style="display:block">precio local ÷ facturado: ${nf2.format(vlc.sellIn.razonPrecio12)}×</small>`) : '') : '—'}</td>` : ''}<td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block" title="Pedidos programados: todavía no salieron; no suman días">+${fN(r2.progCajas)} cajas prog.</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
+      <td data-l="Productos">${s2.length}</td><td data-l="Avance del forecast" class="l">${k72CeldaDist(cl)}</td>${conLocal ? `<td data-l="Venta 3 meses (moneda local)">${vlc ? `<span title="${esc(vlc.queEs || '')}">${esc(fMon(vlc.total3, vlc.moneda))}</span>` + (var3Local(vlc) ? `<small class="${/^sin/.test(var3Local(vlc)) ? 'muted' : vlc.var3 >= 0 ? 'up' : 'down'}" style="display:block">${var3Local(vlc)}</small>` : '') + (vlc.sellIn && ok(vlc.sellIn.razonPrecio12) ? BI(`<small class="muted" style="display:block">precio local ÷ facturado: ${nf2.format(vlc.sellIn.razonPrecio12)}×</small>`) : '') : '—'}</td>` : ''}<td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block" title="Pedidos programados: todavía no salieron; no suman días">+${fN(r2.progCajas)} cajas prog.</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs pronóstico estimado" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
       ${AP ? (() => { const a = accPmClase(cl); return `<td data-l="Precisión del forecast · ${esc(rango(accMeses()))}">${a && a.acc != null ? pct1(a.acc) : '—'}${a && ok(a.sesgo) ? `<small class="${Math.abs(a.sesgo) > 0.15 ? 'warn' : 'muted'}" style="display:block">sesgo ${fP(a.sesgo)} contra compras</small>` : ''}</td></tr>`; })() : `<td data-l="Sesgo del forecast anterior" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`}`;
   }).join('');
   /* 0.4.0: encabezados en dos líneas y celdas que se parten, para que la tabla quepa a 1366-1400 px sin cortar la última columna */
-  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%"><col style="width:13%">${conLocal ? '<col style="width:12%">' : ''}<col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l" title="Sell through: venta del distribuidor a sus clientes · Sell out: venta de las tiendas al consumidor · Sell in directo: lo que Brinova factura">Fuente de la demanda</th><th>Productos</th><th class="l" title="Productos cerrados (ya revisados), en progreso (editados sin cerrar) y pendientes (sin tocar)">Avance del forecast</th>${conLocal ? '<th title="Venta real de los últimos 3 meses en la moneda del distribuidor">Venta 3 meses (moneda local)</th>' : ''}<th>Días de inventario</th><th>Tu forecast vs algoritmo</th>${AP ? `<th title="Asertividad del reporte Forecast y PRM (ACC PM), de ${esc(rango(accMeses()))}; se cambia en la tarjeta Precisión del forecast">Precisión del forecast<br><span class="small muted">${esc(rango(accMeses()))}</span></th>` : '<th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th>'}</tr></thead><tbody>${filas}</tbody></table></div>${BI('<p class="small muted" style="margin-top:8px">El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>')}`;
+  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%"><col style="width:13%">${conLocal ? '<col style="width:12%">' : ''}<col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l" title="Sell through: venta del distribuidor a sus clientes · Sell out: venta de las tiendas al consumidor · Sell in directo: lo que Brinova factura">Fuente de la demanda</th><th>Productos</th><th class="l" title="Productos cerrados (ya revisados), en progreso (editados sin cerrar) y pendientes (sin tocar)">Avance del forecast</th>${conLocal ? '<th title="Venta real de los últimos 3 meses en la moneda del distribuidor">Venta 3 meses (moneda local)</th>' : ''}<th>Días de inventario</th><th>Tu forecast vs pronóstico estimado</th>${AP ? `<th title="Asertividad del reporte Forecast y PRM (ACC PM), de ${esc(rango(accMeses()))}; se cambia en la tarjeta Precisión del forecast">Precisión del forecast<br><span class="small muted">${esc(rango(accMeses()))}</span></th>` : '<th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th>'}</tr></thead><tbody>${filas}</tbody></table></div>${BI('<p class="small muted" style="margin-top:8px">El pronóstico estimado (algoritmo) usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>')}`;
 }
 
 /* ---------- lista (de 60 en 60) ---------- */
@@ -1236,7 +1236,7 @@ function pintarLista() {
   const agr = S.agrupar && S.dist === 'TODOS';      // 070-GRAFICO: "Agrupar por producto" (con un solo distribuidor cada producto ya es una fila)
   { const bA = $('#b-agrupar'); if (bA) { bA.hidden = S.dist !== 'TODOS'; bA.setAttribute('aria-pressed', String(agr)); } }
   const head = `${BI('<p class="small muted" style="margin:0 0 8px">' + esc(catFuenteTxt()) + '</p>')}
-    <div class="lhead"><span>${agr ? 'Producto · suma de distribuidores (toca para verlo en el gráfico)' : 'Producto'}</span><span>12 meses + algoritmo</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">${agr ? 'Precio lista por pieza' : 'Precio lista'}</span></div>`;
+    <div class="lhead"><span>${agr ? 'Producto · suma de distribuidores (toca para verlo en el gráfico)' : 'Producto'}</span><span>12 meses + pronóstico estimado</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Pronóstico estimado ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">${agr ? 'Precio lista por pieza' : 'Precio lista'}</span></div>`;
   if (!L.length) { $('#lista').innerHTML = head + '<div class="vacio">Ningún producto cumple el filtro. Prueba con “Todos”.</div>'; return; }
   /* 0.4.0: agrupada por categoría (p.cat), plegable, con totales en colones; las categorías con más algoritmo arriba.
      Abiertas si hay búsqueda o filtro; si no, cerradas. Lo que el KAM abre o cierra se recuerda hasta que cambie el filtro. */
@@ -1254,7 +1254,7 @@ function pintarLista() {
       <span class="small muted" data-l="">en colones</span>
       <span class="r v" data-l="Venta 3M">${fC(r.d3)}<small class="${r.t == null ? '' : r.t >= 0 ? 'up' : 'down'}">${flecha(r.t)}${fP(r.t)}</small></span>
       <span class="r v" data-l="Inventario">${r.inv ? fC(r.inv) : '—'}</span>
-      <span class="r v" data-l="Algoritmo">${fC(r.alg)}</span>
+      <span class="r v" data-l="Pronóstico estimado">${fC(r.alg)}</span>
       <span class="r v" data-l="Tu forecast">${fC(r.kam)}<small class="${r.dif != null && Math.abs(r.dif) > 0.3 ? 'warn' : ''}">${flecha(r.dif)}${fP(r.dif)}</small></span>
       <span></span></summary>
       ${its.slice(0, lim).map(agr ? itemGrupo : itemLista).join('')}
@@ -1285,10 +1285,10 @@ function itemLista(p) {
       <span class="c-nm" style="min-width:0"><span class="nm">${esc(p.nombre)}</span>
         <span class="meta">${uPill(p)} ${S.dist === 'TODOS' ? esc(p.clase) + ' · ' : ''}${esc(p.principal)}</span>
         ${a.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}</span>` : ''}</span>
-      <span data-l="12 meses + algoritmo">${spark(p)}</span>
+      <span data-l="12 meses + pronóstico estimado">${spark(p)}</span>
       <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
       <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + (conTransito(p) ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${e ? pill(e[0], diasTxt(dias(p)) + '') + (invViejo(p.clase) ? `<small class="warn">${esc(viejoTxt(fechaInv(p.clase)))}</small>` : '') : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
-      <span class="r v" data-l="Algoritmo">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
+      <span class="r v" data-l="Pronóstico estimado">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l="Precio lista">${pr != null ? fC2(pr) : pill('bad', 'sin precio')}<small>por ${esc(esEmpaque(p) || p.uPz > 1 ? String(presDe(p.princ) || 'unidad').toLowerCase() : 'pieza')}</small></span>
     </button>`;
@@ -1319,10 +1319,10 @@ function itemGrupo(a) {
   return `<details class="gp${S.prod === p0.grupo ? ' sel' : ''}" data-grupo="${esc(p0.grupo)}"${S.gpAbierto[p0.grupo] ? ' open' : ''}><summary class="item gp-h" title="Ver ${esc(p0.nombre)} en el gráfico, sumado para sus distribuidores">
       <span class="c-nm" style="min-width:0"><span class="nm">${esc(p0.nombre)}</span>
         <span class="meta"><span class="upill ${f > 1 ? 'emp' : 'pz'}">${esc(a.u.nom)}</span> ${n} ${n === 1 ? 'distribuidor' : 'distribuidores'}${a.u.mixto ? ' · presentaciones distintas: suma en piezas' : ''}${a.alerta ? ' · ' + a.alerta + ' con alerta' : ''}</span></span>
-      <span data-l="12 meses + algoritmo">${spark({ real: a.real, alg: a.algM })}</span>
+      <span data-l="12 meses + pronóstico estimado">${spark({ real: a.real, alg: a.algM })}</span>
       <span class="r v" data-l="Venta 3M">${fN1(a.d3 / f)}<small class="${a.t == null ? '' : a.t >= 0 ? 'up' : 'down'}">${flecha(a.t)}${fP(a.t)}</small></span>
       <span class="r v" data-l="Inventario">${a.conInv ? fN1(a.inv / f) + (a.tr ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${a.dias != null ? pill(e ? e[0] : '', diasTxt(a.dias)) : 'sin venta'}</small>` + (a.conInv < n ? `<small class="muted">${a.conInv} de ${n} con reporte</small>` : '') : '<small>sin reporte</small>'}</span>
-      <span class="r v" data-l="Algoritmo">${fN1(a.alg / f)}<small>${fC(a.algC)}</small></span>
+      <span class="r v" data-l="Pronóstico estimado">${fN1(a.alg / f)}<small>${fC(a.algC)}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(a.kam / f)}<small class="${a.dif != null && Math.abs(a.dif) > 0.3 ? 'warn' : ''}">${flecha(a.dif)}${fP(a.dif)}</small></span>
       <span class="r v" data-l="Precio lista por pieza">${precio}<small>por pieza</small></span>
     </summary>${a.ps.map(p => itemDesglose(p, a.u)).join('')}</details>`;
@@ -1333,10 +1333,10 @@ function itemDesglose(p, u) {
   return `<div class="item gp-d${on ? ' sel' : ''}" data-gpcl="${esc(p.clase)}">
       <span class="c-nm" style="min-width:0"><button type="button" class="gp-sel" data-gsel="${esc(p.grupo)}" aria-pressed="${on}" title="Ver solo ${esc(p.clase)} en el gráfico"><span class="nm">${esc(p.clase)}</span></button>
         <span class="meta">${esc(p.principal)} · se vende en ${esc(pres)}</span></span>
-      <span data-l="12 meses + algoritmo">${spark(p)}</span>
+      <span data-l="12 meses + pronóstico estimado">${spark(p)}</span>
       <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
       <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + `<small>${e ? pill(e[0], diasTxt(dias(p))) : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
-      <span class="r v" data-l="Algoritmo">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
+      <span class="r v" data-l="Pronóstico estimado">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l=""><button type="button" class="btn gp-det" data-p="${esc(p.id)}">Ver detalle</button></span>
     </div>`;
@@ -1344,7 +1344,95 @@ function itemDesglose(p, u) {
 
 /* ---------- captura (formato formulario, de 25 en 25 productos) ---------- */
 let filasGrid = [], prodGrid = [];
-function mesesCaptura() { if (S.capVista === 'curso') return MV.slice(); if (S.capVista === 'todo') return mesesAnio(); return MK.slice(); }
+/* 082-MESES · además de la captura, cada código muestra (bloqueados) los meses anteriores —los 12 antes del mes en curso y el mes en curso— y los
+   siguientes —después de la captura hasta el último mes pronosticado—. Por defecto cerrados; un mismo estado para la grilla y el detalle, todas
+   las filas a la vez, recordado en localStorage. Solo se pintan cuando se despliegan (el DOM por defecto no crece).
+   Casilla bloqueada: forecast registrado en su momento (codigos[].kamPasado = productos[].kamPasadoPz del gráfico, «Forecast registrado») en los
+   meses cerrados; el formulario vigente (codigos[].kam = «Forecast KAM vigente» del gráfico) en el mes en curso y después de la captura.
+   Es un <input readonly> SIN la clase .inp ni data-line: los manejadores de captura (input, Enter, sincronizarInputs, k72Bloquear) no lo tocan. */
+const k82Rango = (a, b) => { const o = []; for (let m = a; m <= b; m = addM(m, 1)) o.push(m); return o; };
+const K82_ANT = k82Rango(addM(MC, -12), addM(MK[0], -1));
+const K82_SIG = ULT_MF > MK[MK.length - 1] ? k82Rango(addM(MK[MK.length - 1], 1), ULT_MF) : [];
+const K82 = { ant: false, sig: false }, LS_K82 = 'portal-k82-meses';
+try { const g = JSON.parse(localStorage.getItem(LS_K82) || 'null'); if (g) { K82.ant = !!g.ant && K82_ANT.length > 0; K82.sig = !!g.sig && K82_SIG.length > 0; } } catch (e) { }
+function k82Guardar() { try { localStorage.setItem(LS_K82, JSON.stringify(K82)); } catch (e) { } }
+const k82Ms = k => k === 'ant' ? K82_ANT : K82_SIG;
+const k82Nom = k => (k === 'ant' ? 'Meses anteriores' : 'Meses siguientes') + ' (' + rango(k82Ms(k)) + ')';
+/* botón con el texto completo: barra de la grilla (pres = aria-pressed) y detalle (aria-expanded) */
+function k82Boton(k, cls, pres) {
+  if (!k82Ms(k).length) return '';
+  const on = K82[k], r = `<span class="k82-r">(${esc(rango(k82Ms(k)))})</span>`;
+  return `<button type="button" class="${cls} k82-b k82-${k}" data-k82="${k}" ${pres ? 'aria-pressed' : 'aria-expanded'}="${on}" title="${on ? 'Ocultar' : 'Ver'} estos meses (solo lectura)">`
+    + (k === 'ant' ? `<span aria-hidden="true">◀</span> Meses anteriores ${r}` : `Meses siguientes ${r} <span aria-hidden="true">▶</span>`) + '</button>';
+}
+/* botón angosto en los costados del encabezado de la grilla */
+function k82BotonTh(k) {
+  if (!k82Ms(k).length) return '';
+  const on = K82[k], fl = (k === 'ant') !== on ? '◀' : '▶';
+  return `<button type="button" class="k82-tg" data-k82="${k}" aria-expanded="${on}" aria-label="${esc((on ? 'Ocultar ' : 'Ver ') + k82Nom(k).toLowerCase())}" title="${esc((on ? 'Ocultar ' : 'Ver ') + k82Nom(k).toLowerCase())}"><span aria-hidden="true">${fl}</span><small>${on ? 'ocultar' : k === 'ant' ? 'anteriores' : 'siguientes'}</small></button>`;
+}
+function mesesCaptura() { return (K82.ant ? K82_ANT : []).concat(MK, K82.sig ? K82_SIG : []); }
+/* valor de la casilla bloqueada (unidad del código) */
+const k82Valor = (c, m) => m < MC ? ((c.kamPasado && c.kamPasado[m] != null) ? c.kamPasado[m] : null) : vig(c, m);
+function k82Celda(p, c, m, pref) {
+  const e = estadoMes(m), pc = c.cod === p.principal && c.pzPorU, u = c.pzPorU || 1, v = k82Valor(c, m);
+  const al = pc && p.alg && p.alg[m] != null ? p.alg[m] / u : null, aa = siU(p, c, addM(m, -12)), ra = pc && p.real[addM(m, -12)] != null ? p.real[addM(m, -12)] / u : null;
+  const iid = pref + '-' + sid(c.id) + '-' + m + '-k82', hid = iid + '-h', l1 = [], l2 = [];
+  if (al != null) l1.push('FCST est. ' + fN1(al));
+  if (e === 'real') { if (pc) l1.push('real ' + fN1((p.real[m] || 0) / u)); const s = siU(p, c, m); if (s != null) l1.push('SI ' + fN1(s)); }
+  else if (e === 'pend') l1.push('real pendiente');
+  else if (e === 'curso') { l1.push(OFICIAL_CURSO ? 'oficial' : 'vigente'); const av = c.avanceU != null ? c.avanceU : (pc && p.avanceSellInPz && p.avanceSellInPz[m] != null ? p.avanceSellInPz[m] / u : null);
+    if (av != null) l2.push('facturado al ' + esc(fechaCorta(D.avanceHasta).slice(0, 5)) + ': ' + fN1(av)); }
+  if (ra != null) l2.push('año pas. ' + fN1(ra)); else if (aa != null) l2.push('SI año pas. ' + fN1(aa));
+  const que = m < MC ? 'forecast registrado en su momento' : e === 'curso' ? 'forecast ' + (OFICIAL_CURSO ? 'oficial' : 'vigente') + ' del mes en curso' : 'formulario vigente';
+  return `<span class="k82-w" title="${esc('Bloqueado: ' + que)}">${ICO.lock}<input class="k82-in" id="${iid}" readonly tabindex="-1" value="${v == null ? '' : esc(v)}" placeholder="—" aria-label="${esc(c.cod + ' ' + mll(m) + ': ' + que + ', bloqueado')}" aria-describedby="${hid}"></span>`
+    + `<span class="hint" id="${hid}">${l1.join(' · ') || '&nbsp;'}${l2.length ? '<br>' + l2.join('<br>') : ''}</span>`;
+}
+/* meses del detalle ("Tu forecast"): anteriores + captura + siguientes en una tira con desplazamiento horizontal */
+const k82Tira = () => (K82.ant && K82_ANT.length > 0) || (K82.sig && K82_SIG.length > 0);
+function k82MesesDet(p, c) {
+  const bl = m => { const e = estadoMes(m); return `<label class="mes k82-mes">${ml(m)} <small>${esc(EST_C[e])}</small>${k82Celda(p, c, m, 'd')}</label>`; };
+  return (K82.ant ? K82_ANT.map(bl).join('') : '')
+    + MK.map(m => `<label class="mes"${m === MK[0] ? ' data-k82-ini' : ''}${m === MK[MK.length - 1] ? ' data-k82-fin' : ''}>${ml(m)}${celdaInput(p, c, m, 'd')}</label>`).join('')
+    + (K82.sig ? K82_SIG.map(bl).join('') : '');
+}
+/* desplazamiento: 'mk' = la captura empieza en el borde izquierdo (después de la columna fija); 'ant' = se ven los meses justo antes de la
+   captura; 'sig' = se ven los primeros meses siguientes */
+function k82Ir(caja, modo) {
+  if (!caja || caja.scrollWidth <= caja.clientWidth) return;
+  const ini = caja.querySelector('[data-k82-ini]'), fin = caja.querySelector('[data-k82-fin]'); if (!ini || !fin) return;
+  const cr = caja.getBoundingClientRect(), fijo = caja.querySelector('thead .stk'), fw = fijo ? fijo.getBoundingClientRect().width : 0;
+  const ri = ini.getBoundingClientRect(), rf = fin.getBoundingClientRect();
+  let d = 0;
+  if (modo === 'mk') d = ri.left - cr.left - fw;
+  else if (modo === 'ant') d = ri.left - cr.left - (caja.clientWidth - 2 * ri.width);
+  else if (modo === 'sig') d = rf.left - cr.left - fw;
+  caja.scrollLeft = Math.max(0, caja.scrollLeft + d);
+}
+/* al pintar (abrir la página, la pestaña o el detalle): si los anteriores están desplegados, se arranca en el primer mes de captura */
+function k82Inicio(cajas) { if (!K82.ant) return; cajas.forEach(c => { if (c && c.scrollLeft < 8) k82Ir(c, 'mk'); }); }      // < 8: el ajuste del scroll-snap puede dejarla en 2 px
+function k82Det(modo) {
+  if (!S.abierto) return;
+  $$('#det [data-k82-c]').forEach(el => {
+    const L = LINES[el.dataset.k82C]; if (!L) return;
+    el.classList.toggle('k82-tira', k82Tira()); el.innerHTML = k82MesesDet(L.p, L.c);
+    if (modo === 'cerrar-ant') el.scrollLeft = 0; else k82Ir(el, modo);
+  });
+  k72Bloquear();      // 072-CIERRE: las casillas de captura recién pintadas respetan el cierre y el modo solo lectura
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-k82]'); if (!b) return;
+  const k = b.dataset.k82; if (!k82Ms(k).length) return;
+  K82[k] = !K82[k]; k82Guardar();
+  const modo = K82[k] ? k : (k === 'ant' ? 'cerrar-ant' : 'nada'), enGrid = !!b.closest('#grid');
+  $$('[data-k82]').forEach(x => { const on = K82[x.dataset.k82]; x.setAttribute(x.hasAttribute('aria-pressed') ? 'aria-pressed' : 'aria-expanded', on); x.title = (on ? 'Ocultar' : 'Ver') + ' estos meses (solo lectura)'; });
+  if (S.vista === 'capturar') {
+    const caja = $('#grid-box .cap-wrap'); pintarGrid();
+    if (caja) { if (modo === 'cerrar-ant') caja.scrollLeft = 0; else k82Ir(caja, modo); }
+    if (enGrid) { const n = $(`#grid [data-k82="${k}"]`); if (n) n.focus(); }      // el botón del encabezado se volvió a pintar
+  }
+  k82Det(modo);
+});
 function listaCaptura() {
   const q = S.q2.trim().toLowerCase();
   return P.filter(p => enDist(p) && p.cap.length && (!q || p.txt.includes(q)) && pasaChip(p, S.chip2) && k72Pasa(p))      // 072-CIERRE: filtro Pendientes / En progreso / Cerrados
@@ -1353,44 +1441,42 @@ function listaCaptura() {
 function celdaInput(p, c, m, pref) {
   const pc = c.cod === p.principal && c.pzPorU, al = pc ? (p.alg[m] || 0) / c.pzPorU : null, vg = vig(c, m), sinF = CAL && (CAL.mesesSinFormulario || []).includes(m), aa = siU(p, c, addM(m, -12)), ra = pc ? (p.real[addM(m, -12)] || 0) / c.pzPorU : null;
   const iid = pref + '-' + sid(c.id) + '-' + m, hid = iid + '-h';
-  return `<input class="inp${editado(c, m) ? ' ed' : ''}" id="${iid}" data-line="${esc(c.id)}" data-mes="${m}" inputmode="numeric" enterkeyhint="next" autocomplete="off"${editable(m) ? '' : ' readonly'} value="${kamU(c, m)}" aria-label="${esc(c.cod + ' ' + mll(m))}" aria-describedby="${hid}">`
-    + `<span class="hint" id="${hid}">${al != null ? 'alg ' + fN1(al) + ' · ' : ''}${sinF ? 'sin formulario previo' : 'ant ' + (vg == null ? '—' : fN(vg))}${ra != null ? '<br>año pas. ' + fN1(ra) : (aa != null ? '<br>SI año pas. ' + fN1(aa) : '')}</span>`;
+  return `<input class="inp${editado(c, m) ? ' ed' : ''}${k82SinGuardar(c, m) ? ' k82-sg' : ''}" id="${iid}" data-line="${esc(c.id)}" data-mes="${m}" inputmode="numeric" enterkeyhint="next" autocomplete="off"${editable(m) ? '' : ' readonly'} value="${kamU(c, m)}" aria-label="${esc(c.cod + ' ' + mll(m))}" aria-describedby="${hid}">`
+    + `<span class="hint" id="${hid}">${al != null ? 'FCST est. ' + fN1(al) + ' · ' : ''}${sinF ? 'sin formulario previo' : 'ant ' + (vg == null ? '—' : fN(vg))}${ra != null ? '<br>año pas. ' + fN1(ra) : (aa != null ? '<br>SI año pas. ' + fN1(aa) : '')}</span>`;
 }
 function celdaCap(p, c, m) {
-  const e = estadoMes(m), pc = c.cod === p.principal && c.pzPorU, u = c.pzPorU || 1;
-  if (e === 'abierto') return `<td class="st-abierto">${celdaInput(p, c, m, 'i')}</td>`;
-  if (e === 'curso') { const av = c.avanceU != null ? c.avanceU : (pc && p.avanceSellInPz && p.avanceSellInPz[m] != null ? p.avanceSellInPz[m] / u : null);
-    return `<td class="st-curso"><span class="lock">${ICO.lock}<b>${fN(vig(c, m))}</b></span><span class="hint">${OFICIAL_CURSO ? 'oficial' : 'vigente'}${av != null ? '<br>facturado al ' + esc(fechaCorta(D.avanceHasta).slice(0, 5)) + ': ' + fN1(av) : ''}</span></td>`; }
-  if (e === 'real' || e === 'pend') { const kp = c.kamPasado && c.kamPasado[m], s = siU(p, c, m);
-    return `<td class="st-real">${pc ? 'real ' + fN1((p.real[m] || 0) / u) : '—'}<span class="hint">${kp != null ? 'reg. ' + fN(kp) : ''}${s != null ? (kp != null ? ' · ' : '') + 'SI ' + fN1(s) : ''}</span></td>`; }
-  return `<td class="st-ref">${pc ? 'alg ' + fN1((p.alg[m] || 0) / u) : '—'}</td>`;
+  if (MK.includes(m)) return `<td class="st-abierto">${celdaInput(p, c, m, 'i')}</td>`;
+  return `<td class="st-${estadoMes(m)} k82-td">${k82Celda(p, c, m, 'i')}</td>`;      // 082-MESES: fuera de la captura, casilla bloqueada con sus pistas
 }
 function grupoCap(p, ncols) {
   const f = fac(p), d = dif(p), a = alertas(p), av = avisosCaptura(p);
   return `<tr class="grp" data-g="${esc(p.id)}"><th class="stk" scope="rowgroup" colspan="2"><div class="gwrap"><button type="button" class="nmp" data-p="${esc(p.id)}">${esc(p.nombre)}</button><span class="small muted">${esc(p.clase)} · ${esc(fuenteProd(p))}</span>${k72Grupo(p)}</div></th>
-    <td colspan="${ncols}" style="text-align:left"><div class="gwrap small"><span>Algoritmo <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>
+    <td colspan="${ncols}" style="text-align:left"><div class="gwrap small"><span>Pronóstico estimado <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>
     ${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}<span data-ga="${esc(p.id)}">${avisosPills(av)}</span></div></td></tr>`;
 }
 function pintarGrid() {
   const L = listaCaptura(), ms = mesesCaptura(), lim = L.slice(0, S.capLim);
   filasGrid = []; prodGrid = lim;
-  let h = `<thead><tr><th class="stk l" scope="col">Producto / código</th><th scope="col">Precio lista</th>${ms.map(m => { const e = estadoMes(m); return `<th scope="col" class="st-${e}">${ml(m)}<small>${EST_C[e]}</small></th>`; }).join('')}<th scope="col">Total captura</th><th scope="col">Valor</th></tr></thead><tbody>`;
+  /* 082-MESES: columnas angostas a los costados de los meses con el botón de anteriores / siguientes; los meses fuera de la captura llevan candado */
+  const lad = (k, x) => k82Ms(k).length ? x : '', nLad = (K82_ANT.length ? 1 : 0) + (K82_SIG.length ? 1 : 0), tdL = lad('ant', '<td class="k82-lado"></td>'), tdR = lad('sig', '<td class="k82-lado"></td>');
+  let h = `<thead><tr><th class="stk l" scope="col">Producto / código</th><th scope="col">Precio lista</th>${lad('ant', `<th scope="col" class="k82-lado">${k82BotonTh('ant')}</th>`)}${ms.map(m => { const e = estadoMes(m), k = MK.includes(m); return `<th scope="col" class="st-${e}"${m === MK[0] ? ' data-k82-ini' : ''}${m === MK[MK.length - 1] ? ' data-k82-fin' : ''}>${ml(m)}<small>${k ? '' : ICO.lock + ' '}${EST_C[e]}</small></th>`; }).join('')}${lad('sig', `<th scope="col" class="k82-lado">${k82BotonTh('sig')}</th>`)}<th scope="col">Total captura</th><th scope="col">Valor</th></tr></thead><tbody>`;
   lim.forEach(p => {
-    h += grupoCap(p, ms.length + 2);
+    h += grupoCap(p, ms.length + 2 + nLad);
     p.cap.forEach(c => {
       filasGrid.push(c.id);
       if (k72Plegado(p)) return;      // 072-CIERRE: producto cerrado y plegado = solo su fila de título (sigue sumando en el pie)
       const pr = precioU(p, c);
       h += `<tr><th class="stk codr" scope="row"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}<small>${esc(descB(c))}</small><small>En ${esc(uCod(c))} · sell in 12M ${fN(c.u12)}</small></th><td>${pr != null ? fC2(pr) : pill('bad', 'sin precio')}</td>`;
-      ms.forEach(m => { h += celdaCap(p, c, m); });
+      h += tdL; ms.forEach(m => { h += celdaCap(p, c, m); }); h += tdR;
       h += `<td class="num" id="t-${esc(c.id)}"></td><td class="num" id="v-${esc(c.id)}"></td></tr>`;
     });
   });
-  if (!L.length) h += `<tr><td class="l" colspan="${4 + ms.length}">Ningún producto cumple el filtro.</td></tr>`;
-  h += `</tbody><tfoot><tr><th class="stk l" scope="row" colspan="2">Total en colones (lista)${lim.length < L.length ? ' · productos mostrados' : ''}</th>${ms.map(m => `<td id="f-${m}"></td>`).join('')}<td></td><td id="f-tot"></td></tr></tfoot>`;
+  if (!L.length) h += `<tr><td class="l" colspan="${4 + ms.length + nLad}">Ningún producto cumple el filtro.</td></tr>`;
+  h += `</tbody><tfoot><tr><th class="stk l" scope="row" colspan="2">Total en colones (lista)${lim.length < L.length ? ' · productos mostrados' : ''}</th>${tdL}${ms.map(m => `<td id="f-${m}"></td>`).join('')}${tdR}<td></td><td id="f-tot"></td></tr></tfoot>`;
   $('#grid').innerHTML = h;
   $('#grid-mas').innerHTML = L.length > S.capLim ? `<div class="mas"><button type="button" class="btn" data-capmas>Mostrar ${Math.min(25, L.length - S.capLim)} productos más (${L.length - S.capLim} restantes)</button></div>` : '';
   filasGrid.forEach(totFila); pieGrid(); pintarResumenCap();
+  k82Inicio([$('#grid-box .cap-wrap')]);      // 082-MESES: con los anteriores desplegados, se arranca en el primer mes de captura
 }
 function totFila(id) {
   const { p, c } = LINES[id], t = document.getElementById('t-' + id), v = document.getElementById('v-' + id);
@@ -1411,11 +1497,11 @@ function pieGrid() {
 function pintarResumenCap() {
   const sel = P.filter(enDist), r = resumen(sel);
   const nEd = sel.reduce((a, p) => a + p.codigos.filter(c => MK.some(m => editado(c, m))).length, 0);
-  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b> en la unidad de tu formulario · viene de tu formulario vigente · se guarda solo.</p>
-    <p class="small muted"><b>alg</b> algoritmo · <b>ant</b> forecast anterior · <b>año pas.</b> venta del mismo mes · <b>real</b>, <b>reg.</b>, <b>SI</b>: venta real, forecast registrado y sell in de meses cerrados</p>
+  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b> en la unidad de tu formulario · viene de tu formulario vigente · los cambios se guardan al tocar <b>Guardar</b>.</p>
+    <p class="small muted"><b>FCST est.</b> pronóstico estimado · <b>ant</b> forecast anterior · <b>año pas.</b> venta del mismo mes · <b>real</b>, <b>reg.</b>, <b>SI</b>: venta real, forecast registrado y sell in de meses cerrados</p>
     <p class="small muted solo-movil">En el celular conviene capturar desde el detalle: toca el nombre del producto.</p>
     ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
-  $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Algoritmo: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
+  $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Pronóstico estimado: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el pronóstico estimado</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
   pintarCapGraf();      // 070-GRAFICO: gráfico compacto del producto que se captura (pintarGrid y refrescarResumen pasan por aquí)
   k72PintarAvance();      // 072-CIERRE: avance por distribuidor, estados y bloqueo de casillas de productos cerrados
 }
@@ -1424,7 +1510,7 @@ function inspector(id, m) {
   const { p, c } = LINES[id], u = c.pzPorU || 1, aa = addM(m, -12), pr = precioU(p, c), pc = c.cod === p.principal && c.pzPorU, un = plural(presDe(c)), s = siU(p, c, aa);
   const it = (k, v) => `<span class="it"><span>${k}</span><b>${v}</b></span>`;
   el.classList.remove('vacio');
-  el.innerHTML = `${it(esc(c.cod) + ' · ' + ml(m), fN(kamU(c, m)) + ' ' + esc(un) + ' = ' + fN(kamU(c, m) * u) + ' pz')}${it('Forecast anterior', vig(c, m) == null ? '—' : fN(vig(c, m)))}${it('Algoritmo', pc ? fN1((p.alg[m] || 0) / u) : 'ver ' + esc(p.principal))}${it('Real ' + ml(aa), pc ? fN1((p.real[aa] || 0) / u) : fN1((p.real[aa] || 0) / u) + ' (producto)')}${it('Sell in ' + ml(aa), s == null ? '—' : fN1(s))}${it('Valor', fC(kamU(c, m) * (pr || 0)))}
+  el.innerHTML = `${it(esc(c.cod) + ' · ' + ml(m), fN(kamU(c, m)) + ' ' + esc(un) + ' = ' + fN(kamU(c, m) * u) + ' pz')}${it('Forecast anterior', vig(c, m) == null ? '—' : fN(vig(c, m)))}${it('Pronóstico estimado', pc ? fN1((p.alg[m] || 0) / u) : 'ver ' + esc(p.principal))}${it('Real ' + ml(aa), pc ? fN1((p.real[aa] || 0) / u) : fN1((p.real[aa] || 0) / u) + ' (producto)')}${it('Sell in ' + ml(aa), s == null ? '—' : fN1(s))}${it('Valor', fC(kamU(c, m) * (pr || 0)))}
     <button type="button" class="btn" data-exp="cel" data-c="${esc(c.id)}" data-m="${m}">¿De dónde sale?</button>`;
 }
 
@@ -1463,27 +1549,27 @@ function pintarMetodo() {
     <p>Datos reales hasta <b>${mll(D.corte)}</b>. Generado el ${esc(D.generado)}.${incompletosDe(D.clases).length ? ' Meses incompletos (marcados con ▲ en los gráficos): ' + D.clases.filter(cl => (INCOMP[cl] || []).length).map(cl => esc(cl) + ' ' + INCOMP[cl].map(ml).join(', ')).join(' · ') + '.' : ''}</p>
     ${BI_DET((D.reglaMesesIncompletos ? `<p class="small muted">Regla de mes incompleto: ${esc(D.reglaMesesIncompletos)}</p>` : '')
       + (vd.length ? `<div class="tw"><table class="tbl"><caption style="padding:8px 10px">Fecha de cada fuente${D.versionDatos.sello ? ' · corrida ' + esc(D.versionDatos.sello) : ''}</caption><tbody>${vd.map(([k, v]) => `<tr><td class="l" style="white-space:normal">${k}</td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ''), 'Ver detalle técnico: regla de mes incompleto y archivos de la corrida')}</section>
-  <section class="panel prosa"><h3>2. El algoritmo en 3 pasos</h3>
+  <section class="panel prosa"><h3>2. El pronóstico estimado (algoritmo) en 3 pasos</h3>
     <p><b>Paso 1 · Base</b>: cuánto vende en un mes normal. Promedio de los últimos 3, 6 y 12 meses <b>dividido entre los meses con venta</b>; si compró en ${(D.algoritmo || {}).intermitenteMeses || 4} meses o menos del año (compra pocas veces), se divide entre 3, 6 y 12 meses de calendario. Base = promedio de esos tres.</p>
     <p><b>Paso 2 · Temporada</b>: un índice por mes sale de la venta de ese mes en 2024 y 2025 contra un mes normal. 1,00 es un mes normal; 1,20 es un mes 20 % más fuerte. Se limita entre 0,4 y 2,0. A los que compran pocas veces no se les aplica.${(D.algoritmo || {}).temporada === 'solo cadenas' ? ' <b>Solo se aplica en cadenas</b> (venta al consumidor en tienda, que sí repite su temporada cada año); en distribuidores, exportación y venta directa las compras siguen pedidos y contenedores y el índice queda en 1,00.' : ''}</p>
-    <p><b>Paso 3 · Reglas</b>: base × índice, redondeado. Si un código lleva <b>6 meses o más sin venta</b>, el algoritmo lo deja en 0.</p>
-    <div class="formula">algoritmo del mes = (prom. 3M + prom. 6M + prom. 12M) ÷ 3 × índice del mes</div>
+    <p><b>Paso 3 · Reglas</b>: base × índice, redondeado. Si un código lleva <b>6 meses o más sin venta</b>, el pronóstico estimado lo deja en 0.</p>
+    <div class="formula">pronóstico estimado del mes = (prom. 3M + prom. 6M + prom. 12M) ÷ 3 × índice del mes</div>
     ${c ? `<p>Ejemplo, <b>${esc(ej.nombre)}</b> en ${esc(ej.clase)} (${esc(un)}): (${fN1(c.l3 / f)} + ${fN1(c.l6 / f)} + ${fN1(c.l12 / f)}) ÷ 3 = ${fN1(base / f)}; × ${nf2.format((c.idx && c.idx[m0]) || 1)} en ${ml(m0)} = <b>${fN1(((c.fc && c.fc[m0]) || 0) / f)}</b>.</p>` : ''}</section>
   <section class="panel prosa"><h3>3. Qué tan bien funciona</h3>
     <p>Se probó pronosticando mayo a octubre de 2026 con datos solo hasta abril, con todos los KAM. Error típico: <b>${esc(D.bt.pc)} %</b> por producto y cliente, <b>${esc(D.bt.cliente)} %</b> por cliente y <b>${esc(D.bt.kam)} %</b> por KAM; en total pronosticó ${esc(D.bt.sesgo)} % de más. El modelo que se usaba antes fallaba ${esc(D.bt.antes)} % por producto.</p>
     ${pk ? `<p><b>Forecast anterior (KAM)</b> (${ml(pk.desde)} – ${ml(pk.hasta)}): ${esc(frasePasado(pk))}.${exclTxt(pk) ? ' ' + esc(exclTxt(pk).replace(/^./, c => c.toUpperCase())) + '.' : ''}${BI(' Contra la venta real: sesgo ' + fP(pk.sesgoReal) + ', precisión ' + (ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—') + '. ' + esc(pk.regla || ''))}</p>` : ''}
-    <p>Por producto el algoritmo sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Forecast anterior (KAM)</b> indica si el forecast tiende a quedar por encima o por debajo de la demanda.</p></section>
+    <p>Por producto el pronóstico estimado sirve como punto de partida. Tu conocimiento del cliente (promociones, listados nuevos, quiebres) es lo que lo corrige. La tarjeta <b>Forecast anterior (KAM)</b> indica si el forecast tiende a quedar por encima o por debajo de la demanda.</p></section>
   <section class="panel prosa"><h3>4. Qué meses capturas</h3>
-    <p>Estamos en el ciclo de <b>${mll(D.ciclo)}</b>. ${esc(mll(MC).replace(/^./, x => x.toUpperCase()))} ya está corriendo: su forecast queda con candado (${OFICIAL_CURSO ? 'el oficial' : 'el de tu formulario vigente'}). Se capturan los ${MK.length} meses siguientes: <b>${rango(MK)}</b>${CAP_HASTA ? ', hasta el ' + fechaCorta(CAP_HASTA) : ''}. Los meses después de la captura muestran el algoritmo como referencia; en “Capturar forecast” → “Todo el año” se ve todo lo cargado.</p>
-    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del algoritmo (más de 50 %), deja un comentario con el motivo.</p>
-    <p><b>Avisos de la captura</b>, por código y mes: el aviso <b>rojo</b> aparece solo cuando el forecast supera ${nf.format(X3)} veces el algoritmo <b>y además</b> de ${nf.format(X3M)} veces el mejor mes de venta que ha tenido ese código; ahí conviene dejar el motivo. Si solo pasa de ${nf.format(X3)} veces el algoritmo, verás una <b>nota gris</b>, sin alarma: es para que lo tengas presente. El aviso amarillo es para un código que lleva de ${SV.min} a ${SV.max} meses sin vender.</p></section>
+    <p>Estamos en el ciclo de <b>${mll(D.ciclo)}</b>. ${esc(mll(MC).replace(/^./, x => x.toUpperCase()))} ya está corriendo: su forecast queda con candado (${OFICIAL_CURSO ? 'el oficial' : 'el de tu formulario vigente'}). Se capturan los ${MK.length} meses siguientes: <b>${rango(MK)}</b>${CAP_HASTA ? ', hasta el ' + fechaCorta(CAP_HASTA) : ''}. Los meses después de la captura muestran el pronóstico estimado como referencia; en “Capturar forecast”, “◀ Meses anteriores” y “Meses siguientes ▶” muestran los demás meses de cada código, con candado.</p>
+    <p>Tu forecast es el que usa Brinova para <b>planear producción y compras</b> y para la <b>meta de facturación</b>. El valor en colones es unidades × precio de lista de ese distribuidor. Cuando te separes mucho del pronóstico estimado (más de 50 %), deja un comentario con el motivo.</p>
+    <p><b>Avisos de la captura</b>, por código y mes: el aviso <b>rojo</b> aparece solo cuando el forecast supera ${nf.format(X3)} veces el pronóstico estimado <b>y además</b> de ${nf.format(X3M)} veces el mejor mes de venta que ha tenido ese código; ahí conviene dejar el motivo. Si solo pasa de ${nf.format(X3)} veces el pronóstico estimado, verás una <b>nota gris</b>, sin alarma: es para que lo tengas presente. El aviso amarillo es para un código que lleva de ${SV.min} a ${SV.max} meses sin vender.</p></section>
   <section class="panel prosa"><h3>5. Unidades</h3>
     <p>Todo se suma en <b>piezas</b>, la unidad estándar del motor (1 alambrina, 1 esponja). Cada código tiene sus <b>piezas por unidad de venta</b>${BI(' (T_SKU · UNIDAD DE EMPAQUE)')}: una caja de 120 pz son 120 piezas.</p>
     <p>Un producto puede tener varios códigos (unidad, caja, pack). Brinova a veces factura uno y el distribuidor reporta otro, así que se juntan por producto. Con <b>Unidad del formulario</b> ves cada producto en la presentación de tu formulario; con <b>Piezas (unidad estándar)</b>, todo en piezas.</p></section>
   <section class="panel prosa"><h3>6. Inventario y lo que todavía no considera</h3>
     <p><b>Días de inventario</b> = (inventario del distribuidor${P.some(conTransito) ? ' + inventario en tránsito que cuenta' : ''}) ÷ su venta diaria de los últimos 3 meses.${P.some(conTransito) && reglaTransito() ? ' Tránsito que cuenta: ' + esc(reglaTransito()) + '.' : ''} ${umbTxt}</p>
     <p>Todavía no considera promociones y lanzamientos (los registra el KAM)${P.some(conTransito) ? '' : ', órdenes de compra en tránsito'} ni la historia completa de inventario de los distribuidores que no lo mandan cada mes.</p>
-    ${D.formFuera && D.formFuera.length ? `<p>Tu formulario también tiene ${D.formFuera.map(esc).join(', ')}, que todavía no tiene fuente de venta para el algoritmo; no aparece aquí.</p>` : ''}</section>
+    ${D.formFuera && D.formFuera.length ? `<p>Tu formulario también tiene ${D.formFuera.map(esc).join(', ')}, que todavía no tiene fuente de venta para el pronóstico estimado; no aparece aquí.</p>` : ''}</section>
   </div>`;
 }
 
@@ -1554,7 +1640,7 @@ const mesOrden = o => { const n = normOrden(o); return n.mes || String(n.eta).sl
 const esFuenteOrden = f => f === 'transito' || f === 'programados';
 const hayOrdenes = f => P.some(p => ordenesFuente(p, f).length);
 const hayTransito = () => hayOrdenes('transito');
-const FUENTES3 = [['kam', 'Forecast KAM'], ['alg', 'Algoritmo'], ['programados', 'Pedidos programados'], ['transito', 'En tránsito']];
+const FUENTES3 = [['kam', 'Forecast KAM'], ['alg', 'Pronóstico estimado'], ['programados', 'Pedidos programados'], ['transito', 'En tránsito']];
 function mesesFuente(f) {
   if (f === 'kam') return MV.slice();
   if (f === 'alg') return MF.slice();
@@ -2132,7 +2218,7 @@ function graficoProducto(p) {
 }
 function lecturaProducto(p) {
   const f = fac(p), t = tend(p), m0 = MK[0], vigN = p.codigos.reduce((s, c) => s + (vig(c, m0) || 0) * (c.pzPorU || 0), 0) / f;
-  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el algoritmo propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y el formulario vigente registra <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${diasTxt(dias(p))}</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses el forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses con forecast).` : ''}`;
+  return `La venta de los últimos 3 meses (${fN1(p.d3 / f)} ${esc(uNom(p))}) va ${t == null ? 'sin base de comparación' : (t >= 0 ? 'arriba ' : 'abajo ') + fP(Math.abs(t)).replace('+', '') + ' contra el año anterior'}. Para ${ml(m0)} el pronóstico estimado propone <b>${fN1((p.alg[m0] || 0) / f)}</b> y el formulario vigente registra <b>${fN1(vigN)}</b>.${p.inv && dias(p) != null ? ` El distribuidor tiene inventario para <b>${diasTxt(dias(p))}</b>${invViejo(p.clase) ? ' (' + esc(viejoTxt(fechaInv(p.clase))) + ')' : ''}.` : ''}${sesgoProducto(p) != null ? ` En los últimos 12 meses el forecast de este producto estuvo <b>${fP(sesgoProducto(p))}</b> contra la venta real (meses con forecast).` : ''}`;
 }
 function bloqueCaptura(p, c) {
   const pr = precioU(p, c), desc = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null, av = c.avanceU != null ? c.avanceU : (c.cod === p.principal && c.pzPorU && p.avanceSellInPz && p.avanceSellInPz[MC] != null ? p.avanceSellInPz[MC] / c.pzPorU : null);
@@ -2140,10 +2226,10 @@ function bloqueCaptura(p, c) {
     <span class="pill kam">lista ${pr != null ? fC2(pr) : 'sin precio'}</span>
     ${c.precioFact ? `<span class="pill kam">facturado ${fC2(c.precioFact)}${desc != null ? ' · ' + nf.format(desc * 100) + ' % desc.' : ''}</span>` : ''}</div>
     <p class="small muted">${ICO.lock} ${ml(MC)} en curso: <b>${fN(vig(c, MC))}</b> ${esc(plural(presDe(c)))} (${OFICIAL_CURSO ? 'oficial' : 'vigente'}, no se cambia)${av != null ? ' · facturado al ' + esc(fechaCorta(D.avanceHasta)) + ': ' + fN1(av) : ''} · sell in 12 meses: ${fN(c.u12)} (${fN1((c.u12 || 0) / 12)} al mes)</p>
-    <div class="meses">`;
-  MK.forEach(m => { h += `<label class="mes">${ml(m)}${celdaInput(p, c, m, 'd')}</label>`; });
+    ${K82_ANT.length || K82_SIG.length ? `<div class="k82-nav">${k82Boton('ant', 'chip')}${k82Boton('sig', 'chip')}</div>` : ''}
+    <div class="meses${k82Tira() ? ' k82-tira' : ''}" data-k82-c="${esc(c.id)}">${k82MesesDet(p, c)}`;      // 082-MESES: anteriores + captura + siguientes
   h += `</div><div style="display:flex;gap:8px;flex-wrap:wrap">
-    ${c.cod === p.principal && c.pzPorU ? `<button type="button" class="btn" data-usar-alg="${esc(c.id)}"${VENCIDO ? ' disabled' : ''}>Copiar el algoritmo</button>` : ''}
+    ${c.cod === p.principal && c.pzPorU ? `<button type="button" class="btn" data-usar-alg="${esc(c.id)}"${VENCIDO ? ' disabled' : ''}>Copiar el pronóstico estimado</button>` : ''}
     <button type="button" class="btn" data-volver="${esc(c.id)}"${VENCIDO ? ' disabled' : ''}>Volver a mi formulario</button></div></div>`;
   return h;
 }
@@ -2172,7 +2258,7 @@ function htmlOrigen(p) {
     ${BI_DET('<p>' + fuenteLargaProd(p) + '.</p>', 'Detalle técnico de la fuente')}
     <details class="mas-info" style="margin-top:8px"><summary>Ver demanda y sell in por mes</summary><div style="margin-top:8px">
     ${og ? `<p class="prosa" style="margin-bottom:8px">Este producto, en 12 meses: ${Object.entries(og).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<b>${esc((TIPO[t] || { c: t }).c)}</b> ${fN(v)} pz (${ogT ? nf.format(v / ogT * 100) : 0} %)`).join(' + ')}.</p>` : ''}
-    <p class="aviso info solo-bi" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
+    <p class="aviso info solo-bi" style="margin-bottom:10px"><b>¿Qué demanda usa el pronóstico estimado (algoritmo)?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
     <div class="tw" role="region" tabindex="0" aria-label="Demanda y sell in por mes" style="max-height:340px"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Demanda (pz)</th>${dir ? '' : '<th>Sell in (pz)</th><th>Sell in − demanda</th>'}<th>Demanda en ${esc(uNom(p))}</th></tr></thead><tbody>
     ${L12.map(m => `<tr><td class="l">${ml(m)}${inc.includes(m) ? ' <span class="pill ' + (incRevisado(p.clase, m) ? '' : 'warn') + '" title="' + esc(incTxt(p.clase, m)) + '">▲ ' + esc(incRevisado(p.clase, m) ? 'sin reporte (revisado)' : incCorto(p.clase, m)) + '</span>' : (REV[p.clase] || {})[m] ? ' <span class="pill" title="' + esc(revNota(p.clase, m)) + '">' + esc(revTxt(p.clase, m)) + '</span>' : ''}</td><td>${fN(p.real[m] || 0)}</td>${dir ? '' : `<td>${fN(p.sellIn[m] || 0)}</td><td>${fN((p.sellIn[m] || 0) - (p.real[m] || 0))}</td>`}<td>${fN1((p.real[m] || 0) / f)}</td></tr>`).join('')}
     </tbody><tfoot><tr><th class="l" scope="row">12 meses</th><td>${fN(p.d12)}</td>${dir ? '' : `<td>${fN(p.s12)}</td><td>${fN(p.s12 - p.d12)}</td>`}<td>${nb('p_cierre', p.cierre === 'OK' ? 'cuadra' : esc(p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</td></tr></tfoot></table></div>
@@ -2182,9 +2268,9 @@ function htmlOrigen(p) {
 }
 function htmlAlgoritmo(p) {
   const cs = p.codigos.filter(c => c.calc);
-  if (!cs.length) return `<div class="panel-h"><h2>Cálculo del algoritmo</h2></div><p class="prosa">Sin venta en el historial: el algoritmo no tiene base para este producto.</p>`;
+  if (!cs.length) return `<div class="panel-h"><h2>Cálculo del pronóstico estimado</h2></div><p class="prosa">Sin venta en el historial: el pronóstico estimado no tiene base para este producto.</p>`;
   const f = fac(p), ms = MF;      // 0.4.0: todo el horizonte del algoritmo, no solo la captura
-  return `<div class="panel-h"><h2>Cálculo del algoritmo en 3 pasos</h2><span class="nota">Por código, en ${esc(S.unidad === 'pz' ? 'piezas' : uNom(p))}</span></div>` + cs.map(c => {
+  return `<div class="panel-h"><h2>Cálculo del pronóstico estimado en 3 pasos</h2><span class="nota">Por código, en ${esc(S.unidad === 'pz' ? 'piezas' : uNom(p))}</span></div>` + cs.map(c => {
     const k = c.calc, it = inter(k), base = k.base != null ? k.base : (k.l3 + k.l6 + k.l12) / 3, mx = Math.max(k.l3, k.l6, k.l12, base, 1), obs = k.estado !== 'ACTIVO';
     const aplica = k.idxAplica != null ? !!k.idxAplica : !it;
     const motivo = k.idxMotivo ? ({ todos: 'regla vigente: se aplica en todos los clientes', cadena: 'cadena', distribuidor: 'distribuidor', 'exportación': 'exportación', exportacion: 'exportación', intermitente: 'compra pocas veces' }[k.idxMotivo] || k.idxMotivo) : (it ? 'compra pocas veces' : '');
@@ -2194,7 +2280,7 @@ function htmlAlgoritmo(p) {
     const bar = (lb, v, cls) => `<div class="barra"><span>${lb}</span><span><span class="b ${cls || ''}" style="width:${(v / mx * 100).toFixed(1)}%"></span></span><span class="v">${fN1(v / f)}</span></div>`;
     const div = n => it ? n + ' meses (calendario)' : `meses con venta (${n === 3 ? k.mv3 : n === 6 ? k.mv6 : k.mv12} de ${n})`;
     return `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px"><p style="margin-bottom:10px"><b>${esc(descB(c))}</b> <span class="muted">${esc(c.cod)}</span> ${obs ? pill('warn', 'Sin venta ' + fN(k.sinVenta) + ' meses → 0') : pill('good', 'Activo')} ${it ? pill('acc', 'Compra pocas veces') : ''}</p>
-    ${obs ? `<p class="aviso" style="margin-bottom:10px">Lleva ${fN(k.sinVenta)} meses sin venta (última: ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). La regla deja el algoritmo en 0 hasta que vuelva a venderse${MK.some(m => kamU(c, m) > 0) ? ', pero tu forecast tiene unidades: revisa si sigue vigente' : ''}.</p>` : ''}
+    ${obs ? `<p class="aviso" style="margin-bottom:10px">Lleva ${fN(k.sinVenta)} meses sin venta (última: ${k.ultimo ? mll(k.ultimo) : 'sin registro'}). La regla deja el pronóstico estimado en 0 hasta que vuelva a venderse${MK.some(m => kamU(c, m) > 0) ? ', pero tu forecast tiene unidades: revisa si sigue vigente' : ''}.</p>` : ''}
     <div class="pasos3">
       <div class="p3"><h4><span class="nro">1</span>Base mensual</h4><p class="small muted">${it ? `Vendió en ${k.mv12} de los últimos 12 meses (compra pocas veces): cada promedio se divide entre 3, 6 y 12 meses de calendario, contando los meses sin venta.` : 'Promedio de 3, 6 y 12 meses, dividido entre los meses con venta de cada ventana.'}</p>
         ${bar('3 meses', k.l3)}${bar('6 meses', k.l6)}${bar('12 meses', k.l12)}${bar('Base', base, 'base')}
@@ -2207,10 +2293,10 @@ function htmlAlgoritmo(p) {
           ${[...new Set(ms.map(m => m.slice(5, 7)))].map(mm => { const m = ms.find(x => x.slice(5, 7) === mm), x = fuente(m); return `<tr><td class="l">${MES[+mm - 1]}</td><td>${x.a == null ? 'excluido' : fN(x.a)}</td><td>${x.b == null ? 'excluido' : fN(x.b)}</td><td>${fN1(x.prom)}</td><td>${nf2.format(x.idx)}</td></tr>`; }).join('')}
           </tbody></table></div><p class="small muted" style="margin-top:4px">Índice = promedio del mes en ${an[0]} y ${an[1]} ÷ promedio mensual de los dos años, limitado a 0,4–2,0. Si el mes no tuvo venta, vale 1.</p></details>` : ''}</div>
       <div class="p3"><h4><span class="nro">3</span>Resultado</h4><p class="small muted">Base × índice, redondeado${obs ? ', y 0 por la regla de 6 o más meses sin venta' : ''}.</p>
-        <div class="tw"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Base × índ.</th><th>Algoritmo</th></tr></thead><tbody>
+        <div class="tw"><table class="tbl"><thead><tr><th class="l">Mes</th><th>Base × índ.</th><th>Pronóstico estimado</th></tr></thead><tbody>
         ${ms.map(m => `<tr${m === MC ? ' class="muted"' : ''}><td class="l">${ml(m)}${m === MC ? ' (en curso)' : ''}</td><td>${fN1(((k.prom && k.prom[m]) || 0) / f)}</td><td><b>${fN1(((k.fc && k.fc[m]) || 0) / f)}</b></td></tr>`).join('')}</tbody></table></div></div>
     </div></div>`;
-  }).join('') + `<p class="small muted" style="margin-top:12px">El algoritmo del producto suma todos sus códigos.</p>` + BI_DET(`<p class="tec">Fuente: ${FUENTE_ALG} → datos.json productos[].codigos[].calc (l3, l6, l12, mv3/6/12, idx, prom, fc).</p>`);
+  }).join('') + `<p class="small muted" style="margin-top:12px">El pronóstico estimado del producto suma todos sus códigos.</p>` + BI_DET(`<p class="tec">Fuente: ${FUENTE_ALG} → datos.json productos[].codigos[].calc (l3, l6, l12, mv3/6/12, idx, prom, fc).</p>`);
 }
 function htmlInventario(p) {
   const f = fac(p), i = p.inv, e = estInv(dias(p), p.clase), rz = riesgo(p.clase), ip = invPartes(p) || { dist: 0, tr: 0, tot: 0, ordenes: [] };
@@ -2251,24 +2337,25 @@ function pintarDetalle(p) {
   <div class="mini">
     <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>${(() => { const vl = ventaLocalDe(p.clase), vp = p.ventaLocal; return vl && vp && ok(vp.total3) ? `<span class="sub" title="${esc(vl.queEs || '')}">${esc(fMon(vp.total3, vl.moneda))} en ${esc(vl.moneda)}</span>` : ''; })()}</div>
     <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(invTot(p) / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span>${inv && conTransito(p) ? `<span class="sub">${fN1(invPartes(p).dist / f)} en el distribuidor + ${fN1(invPartes(p).tr / f)} en tránsito</span>` : ''}<span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : diasTxt(dias(p)) + ' · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
-    <div class="kpi"><span class="lbl">Algoritmo · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
-    <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el algoritmo · ${fC(kamValM(p, MK))}</span></div>
+    <div class="kpi"><span class="lbl">Pronóstico estimado · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
+    <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el pronóstico estimado · ${fC(kamValM(p, MK))}</span></div>
   </div>
   <p class="lectura" id="det-lectura">${lecturaProducto(p)}</p>
   <section class="panel"><div class="panel-h"><h2>Mes a mes</h2><span class="nota">${esc(uNom(p))}</span>
     <span class="der"><button type="button" class="chip" id="b-desde2" aria-pressed="${S.desde === '2024-01'}">Desde 2024</button><button type="button" class="chip" data-tabla="ch-prod" aria-pressed="false">Ver tabla</button></span></div>
     <div class="chart" id="ch-prod"></div><div class="legend" id="lg-prod"></div><div id="ch-prod-tb"></div></section>
-  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2>${k72PillDet(p)}<span class="nota">En la unidad de cada código · ${esc(ml(MC))} en curso, no se cambia · se guarda solo</span></div>
+  <section class="panel"><div class="panel-h"><h2>Tu forecast</h2>${k72PillDet(p)}<span class="nota">En la unidad de cada código · ${esc(ml(MC))} en curso, no se cambia · los cambios se guardan al tocar Guardar</span></div>
     ${p.cap.map(c => bloqueCaptura(p, c)).join('') || '<p class="prosa">Este producto no tiene un código para capturar en este distribuidor.</p>'}
-    <label class="mes" style="margin-top:10px">Comentario (motivo si te separas del algoritmo: promociones, quiebres)<textarea id="nota-${sid(notaId)}" data-nota="${esc(notaId)}">${esc(nota)}</textarea></label>
+    <label class="mes" style="margin-top:10px">Comentario (motivo si te separas del pronóstico estimado: promociones, quiebres)<textarea id="nota-${sid(notaId)}" data-nota="${esc(notaId)}"${k82Pend(notaId) ? ' class="k82-sg"' : ''}>${esc(nota)}</textarea></label>
     <p class="prosa" style="margin-top:8px" id="det-afecta">${afecta(p)}</p>${k72BarraDet(p)}</section>
   <section class="panel">${htmlInventario(p)}</section>
   <section class="panel" aria-labelledby="or-t">${htmlOrigen(p)}</section>
-  <section class="panel"><details class="mas-info"><summary>Cómo se calculó el algoritmo</summary><div style="margin-top:10px">${htmlAlgoritmo(p)}</div></details></section>
+  <section class="panel"><details class="mas-info"><summary>Cómo se calculó el pronóstico estimado</summary><div style="margin-top:10px">${htmlAlgoritmo(p)}</div></details></section>
   <section class="panel"><details class="rs" id="rs-box" data-p="${esc(p.id)}"><summary><span id="rs-tit">${esc(rsTitulo(p))}</span><span class="nota">${esc(rsNota(p))}</span></summary><div id="rs-cuerpo" style="margin-top:10px"></div></details></section>
   </div>`;
   RS.p = p.id; RS.m = null; RS.path = []; RS.dim = null; RS.lim = 200;
   k72Bloquear();      // 072-CIERRE: casillas y comentario de un producto cerrado quedan de solo lectura
+  requestAnimationFrame(() => { k82Inicio($$('#det [data-k82-c]')); k82Barra(); });      // 082-MESES: cada tira arranca en el primer mes de captura (después de showModal) y la barra de cambios pasa al panel
   graficoProducto(p);
   if (inv) {
     const h = {}, ms = MH.filter(m => m >= addM(D.corte, -11)); ms.forEach(m => { if (inv.hist && inv.hist[m] != null) h[m] = inv.hist[m] / f; });
@@ -2278,13 +2365,13 @@ function pintarDetalle(p) {
 function afecta(p) {
   const kv = kamValM(p, MK), av = pv(p, algPz6(p));
   if (!av && !kv) return 'Sin forecast en estos meses.';
-  return `Valor de tu forecast: <b>${fC(kv)}</b> a precio de lista en ${esc(rango(MK))} (algoritmo: ${fC(av)}).`;
+  return `Valor de tu forecast: <b>${fC(kv)}</b> a precio de lista en ${esc(rango(MK))} (pronóstico estimado: ${fC(av)}).`;
 }
 function refrescarDetalle(p) {
   const f = fac(p), d = dif(p);
   graficoProducto(p);
   const k = $('#det-kam'); if (k) k.innerHTML = nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`);
-  const k2 = $('#det-kam2'); if (k2) { k2.textContent = flecha(d) + fP(d) + ' contra el algoritmo · ' + fC(kamValM(p, MK)); k2.className = 'vr ' + (d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'); }
+  const k2 = $('#det-kam2'); if (k2) { k2.textContent = flecha(d) + fP(d) + ' contra el pronóstico estimado · ' + fC(kamValM(p, MK)); k2.className = 'vr ' + (d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'); }
   const af = $('#det-afecta'); if (af) af.innerHTML = afecta(p);
   const av = $('#det-avisos'); if (av) av.innerHTML = avisosHtml(avisosCaptura(p));
 }
@@ -2453,25 +2540,29 @@ async function abrirLinaje() {
 const timers = {}, cadena = {};
 let pendientes = 0;
 function estado(t, cls) { $('#estado').innerHTML = `<span class="dot ${cls || ''}"></span><span>${esc(t)}</span>`; }
-function guardarLocal() { try { localStorage.setItem(LS, JSON.stringify({ unidad: S.unidad, local: db ? {} : local })); } catch (e) { } }
+/* 082-MESES · guardado explícito: lo que escribe el KAM queda en `local` (borrador en memoria, nunca en localStorage) hasta que toca Guardar.
+   localStorage solo guarda la unidad elegida; un borrador viejo (versiones anteriores guardaban `local`) se ofrece una vez (k82Oferta). */
+const K82_VIEJO = (() => { try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); return g && g.local && typeof g.local === 'object' && Object.keys(g.local).length ? g.local : null; } catch (e) { return null; } })();
+function guardarLocal() { try { localStorage.setItem(LS, JSON.stringify({ unidad: S.unidad })); } catch (e) { } }
 function setKam(id, m, v) {
   if (!editable(m) || k72Cerrado((LINES[id] || {}).p)) return;    // nunca se guarda un mes fuera de la ventana de captura · 072-CIERRE: ni de un producto cerrado
   local[id] = local[id] || { meses: {} }; local[id].meses = local[id].meses || {}; local[id].meses[m] = v;
-  guardarLocal(); programar(id);
+  k82Cambio();      // 082-MESES: queda en el borrador; se guarda al tocar Guardar
   const L = LINES[id]; if (L) document.dispatchEvent(new CustomEvent('fcst:captura', { detail: { clase: L.p.clase, cod: L.c.cod, mes: m, id, valor: v } }));      // 070-GRAFICO: contrato común (brief 0.7.0 › regla 4)
 }
-function programar(id) { clearTimeout(timers[id]); estado('Guardando…', 'pend'); timers[id] = setTimeout(() => guardar(id), 700); }
 function soloVentana(o) { const r = {}; Object.keys(o || {}).forEach(m => { if (MK.includes(m)) r[m] = o[m]; }); return r; }
 function guardar(id) {
   const { p, c } = LINES[id], r = remote[id] || {}, l = local[id] || {};
   const body = { clase: p.clase, cod: c.cod, producto: p.grupo, meses: soloVentana(Object.assign({}, r.meses || {}, l.meses || {})),
     nota: l.nota != null ? l.nota : (r.nota || ''), por: uid || '', en: new Date().toISOString(), ...k72Cuerpo(l, r) };      // 072-CIERRE: listo, listoEn, listoPor
-  if (!db) { estado('Guardado solo en este navegador', 'pend'); return; }
+  /* 082-MESES: se pasa al guardado de una vez (remote) y se quita del borrador; si falla, el borrador vuelve (lo escrito después gana) */
+  const prevL = local[id], prevR = remote[id];
+  remote[id] = body; delete local[id];
+  if (!db) { k82GuardarNavegador(); return Promise.resolve(); }
   pendientes++;
-  cadena[id] = (cadena[id] || Promise.resolve())
-    .then(() => db.doc(`ciclos/${CID}/lineas/${id}`).set(body))
-    .then(() => { pendientes--; if (!pendientes) estado('Guardado ' + hora(), 'ok'); },
-      e => { pendientes--; estado(e && (e.code === 'not_granted' || e.code === 'permission_denied') ? 'No tienes permiso para guardar: avisa a BI' : 'No se pudo guardar; revisa la conexión', 'err'); });
+  const pr = (cadena[id] || Promise.resolve()).then(() => db.doc(`ciclos/${CID}/lineas/${id}`).set(body));
+  cadena[id] = pr.catch(() => { });
+  return pr.then(() => { pendientes--; }, e => { pendientes--; local[id] = Object.assign({}, prevL, local[id], { meses: Object.assign({}, prevL && prevL.meses, local[id] && local[id].meses) }); if (remote[id] === body) remote[id] = prevR; throw e; });
 }
 function sincronizarInputs() {
   document.querySelectorAll('.inp').forEach(el => {
@@ -2479,8 +2570,106 @@ function sincronizarInputs() {
     const v = kamU(L.c, el.dataset.mes);
     if (document.activeElement !== el && String(v) !== el.value) el.value = v;
     el.classList.toggle('ed', editado(L.c, el.dataset.mes));
+    el.classList.toggle('k82-sg', k82SinGuardar(L.c, el.dataset.mes));      // 082-MESES: editada y sin guardar
   });
 }
+/* ---------- 082-MESES · guardado explícito (borrador en memoria + barra "N cambios sin guardar · Guardar · Descartar") ----------
+   Lo guardado = remote (OneDrive; sin OneDrive, LS_K82G en este navegador). Borrador = local. Un cambio = (código, mes de captura) o un comentario
+   cuyo valor en el borrador difiere de lo guardado. El formato de lo que se manda (db.doc(...).set(body)) es el de siempre. */
+const LS_K82G = LS + '-guardado';
+const K82G = { listo: '', guardando: null, n: 0, oferta: null, ofertaHecha: false };
+function k82GuardarNavegador() { try { localStorage.setItem(LS_K82G, JSON.stringify(remote)); } catch (e) { } }
+const k82Guardado = (c, m) => { const r = remote[c.id]; return r && r.meses && r.meses[m] != null ? r.meses[m] : (vig(c, m) || 0); };
+const k82NotaG = id => (remote[id] && remote[id].nota) || '';
+function k82Pend(id) {
+  const l = local[id], L = LINES[id]; if (!l || !L) return 0;
+  let n = 0; if (l.meses) MK.forEach(m => { if (l.meses[m] != null && l.meses[m] !== k82Guardado(L.c, m)) n++; });
+  if (l.nota != null && l.nota !== k82NotaG(id)) n++;
+  return n;
+}
+const k82N = () => Object.keys(local).reduce((a, id) => a + k82Pend(id), 0);
+const k82PendProd = p => [...new Set(p.cap.map(c => c.id).concat([p.princ.id]))].reduce((a, id) => a + k82Pend(id), 0);
+const k82SinGuardar = (c, m) => { const l = local[c.id]; return !!(l && l.meses && l.meses[m] != null && l.meses[m] !== k82Guardado(c, m)); };
+window.portalSinGuardar = () => k82N();      // portal.js lo consulta antes de cambiar de KAM, ir a "Todos los KAM" o "Dejar de editar"
+window.addEventListener('beforeunload', ev => { if (k82N() && !window.portalSalidaConfirmada) { ev.preventDefault(); ev.returnValue = ''; } });
+function k82Cambio(sil) {
+  const n = k82N();
+  if (!sil && !K82G.guardando) { if (n) estado('Sin guardar', 'pend'); else if (!pendientes) estado(K82G.listo || 'Sin cambios', 'ok'); }
+  k82Barra();
+}
+function k82Barra() {
+  let b = document.getElementById('k82-barra');
+  if (!b) { b = document.createElement('div'); b.id = 'k82-barra'; b.className = 'k82-barra'; b.setAttribute('role', 'region'); b.setAttribute('aria-label', 'Cambios sin guardar'); b.hidden = true; document.body.appendChild(b); }
+  const det = $('#det'), dest = det && det.open ? det : document.body; if (b.parentNode !== dest) dest.appendChild(b);
+  const n = k82N(), of = K82G.oferta, modo = of ? 'oferta' : K82G.guardando ? 'guardando' : n ? 'cambios' : '';
+  if (b.dataset.modo !== modo) {
+    b.dataset.modo = modo;
+    b.innerHTML = modo === 'oferta' ? `<span class="k82-bt" role="status">Hay cambios de una sesión anterior sin guardar <span class="k82-r">(${of.n})</span></span><span class="k82-bb"><button type="button" class="btn pri" data-k82g="recuperar">Recuperar</button><button type="button" class="btn" data-k82g="olvidar">Descartar</button></span>`
+      : modo === 'guardando' ? `<span class="k82-bt" role="status">Guardando…</span><span class="k82-bb"><button type="button" class="btn pri" disabled>Guardar</button><button type="button" class="btn" disabled>Descartar</button></span>`
+      : modo === 'cambios' ? `<span class="k82-bt" role="status"><span class="k82-pt" aria-hidden="true"></span><b class="k82-n"></b></span><span class="k82-bb"><button type="button" class="btn pri" data-k82g="guardar">Guardar</button><button type="button" class="btn" data-k82g="descartar">Descartar</button></span>` : '';
+  }
+  const t = b.querySelector('.k82-n'); if (t) { const x = n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'); if (t.textContent !== x) t.textContent = x; }
+  b.hidden = !modo; document.body.classList.toggle('k82-hay', !!modo);
+}
+function k82Despues(rs) {
+  const mal = rs.filter(r => r.status === 'rejected');
+  if (mal.length) { const e = mal[0].reason; estado(e && (e.code === 'not_granted' || e.code === 'permission_denied') ? 'No tienes permiso para guardar: avisa a BI' : 'No se pudo guardar; revisa la conexión', 'err'); }
+  else { K82G.listo = 'Guardado ' + hora(); if (!k82N()) estado(K82G.listo, 'ok'); }
+  sincronizarInputs(); $$('textarea[data-nota]').forEach(x => x.classList.toggle('k82-sg', k82Pend(x.dataset.nota) > 0));
+  k82Cambio(true); refrescarResumen();
+  return !mal.length;
+}
+function k82GuardarTodo() {
+  if (K82G.guardando) return K82G.guardando;
+  const ids = Object.keys(local).filter(id => LINES[id]), con = ids.filter(id => k82Pend(id) > 0 || local[id].listo != null);
+  ids.filter(id => !con.includes(id)).forEach(id => { delete local[id]; });      // borrador igual a lo guardado: no se manda
+  if (!con.length) { k82Cambio(); return Promise.resolve(true); }
+  const n = k82N(); estado('Guardando…', 'pend');
+  K82G.guardando = Promise.allSettled(con.map(guardar)).then(rs => { K82G.guardando = null; const okG = k82Despues(rs); if (okG) toast(n === 1 ? 'Se guardó 1 cambio' : `Se guardaron ${n} cambios`); return okG; });
+  k82Barra();
+  return K82G.guardando;
+}
+function k82Descartar() {
+  const n = k82N(); local = {};
+  $$('.inp').forEach(x => { const L = LINES[x.dataset.line]; if (L) x.value = kamU(L.c, x.dataset.mes); });      // también la casilla que tiene el foco
+  sincronizarInputs(); $$('textarea[data-nota]').forEach(x => { x.value = k82NotaG(x.dataset.nota); x.classList.remove('k82-sg'); });
+  $$('.inp').forEach(x => { if (x.dataset.line) totFila(x.dataset.line); }); pieGrid();
+  if (S.vista === 'capturar') prodGrid.forEach(refrescarGrupo);
+  refrescarResumen(); document.dispatchEvent(new CustomEvent('fcst:captura', { detail: { descartar: true } }));
+  k82Cambio(); toast(n === 1 ? 'Se descartó 1 cambio' : `Se descartaron ${n} cambios`);
+}
+/* borrador de una versión anterior (localStorage › local): no se aplica solo; se ofrece una vez */
+function k82Oferta() {
+  if (!K82_VIEJO || K82G.ofertaHecha) return; K82G.ofertaHecha = true;
+  if (VENCIDO || k72SoloLectura()) return;
+  const x = {}; let n = 0;
+  Object.entries(K82_VIEJO).forEach(([id, l]) => {
+    const L = LINES[id]; if (!L || !l || k72Cerrado(L.p)) return;
+    const y = { meses: {} }, ms = soloVentana(l.meses);
+    Object.keys(ms).forEach(m => { const v = parseInt(ms[m], 10); if (editable(m) && isFinite(v) && v >= 0 && v !== k82Guardado(L.c, m)) { y.meses[m] = v; n++; } });
+    if (typeof l.nota === 'string' && l.nota !== k82NotaG(id)) { y.nota = l.nota; n++; }
+    if (Object.keys(y.meses).length || y.nota != null) x[id] = y;
+  });
+  if (!n) { guardarLocal(); return; }
+  K82G.oferta = { x, n }; k82Barra();
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('[data-k82g]'); if (!b) return;
+  const a = b.dataset.k82g;
+  if (a === 'guardar') { k82GuardarTodo(); return; }
+  if (a === 'descartar') { k82Descartar(); return; }
+  if (a === 'recuperar' || a === 'olvidar') {
+    const of = K82G.oferta; K82G.oferta = null; guardarLocal();      // localStorage queda sin el borrador viejo
+    if (a === 'recuperar' && of) {
+      Object.entries(of.x).forEach(([id, y]) => { const l = local[id] = local[id] || { meses: {} }; l.meses = Object.assign(l.meses || {}, y.meses); if (y.nota != null) l.nota = y.nota; });
+      sincronizarInputs(); $$('textarea[data-nota]').forEach(x => { if (local[x.dataset.nota] && local[x.dataset.nota].nota != null) { x.value = local[x.dataset.nota].nota; x.classList.add('k82-sg'); } });
+      if (S.vista === 'capturar') pintarGrid(); refrescarResumen(); document.dispatchEvent(new CustomEvent('fcst:captura', { detail: { recuperar: true } }));
+      toast('Se recuperaron los cambios: revisa y toca Guardar');
+    }
+    k82Cambio();
+  }
+});
+$('#det').addEventListener('close', () => k82Barra());      // la barra vuelve a la página
 function refrescarGrupo(p) {
   const f = fac(p), d = dif(p);
   $$('[data-gt]').forEach(e => { if (e.dataset.gt === p.id) e.textContent = fN1(kamPz6(p) / f); });
@@ -2560,14 +2749,14 @@ document.addEventListener('click', ev => {
   if (ds.usarAlg || ds.volver) {
     const id = ds.usarAlg || ds.volver, { p, c } = LINES[id];
     MK.forEach(m => { setKam(id, m, ds.usarAlg ? Math.round((p.alg[m] || 0) / c.pzPorU) : (vig(c, m) || 0)); });
-    sincronizarInputs(); totFila(id); refrescarResumen(); toast(ds.usarAlg ? 'Se copió el algoritmo en los meses de captura' : 'Volvió a tu formulario'); return;
+    sincronizarInputs(); totFila(id); refrescarResumen(); toast(ds.usarAlg ? 'Se copió el pronóstico estimado en los meses de captura' : 'Volvió a tu formulario'); return;
   }
   if (t.id === 'b-listo') {
     if (VENCIDO) { toast('La captura de este ciclo ya cerró'); return; }
     if (!db) { toast('Para marcarlo como listo hay que abrir el enlace con sesión iniciada'); return; }
     const tot = P.reduce((a, p) => a + kamValM(p, MK), 0);
     t.disabled = true;
-    db.doc(`ciclos/${CID}`).set({ estado: 'listo', por: uid || '', en: new Date().toISOString(), valorLista: Math.round(tot) })
+    (k82N() ? k82GuardarTodo() : Promise.resolve(true)).then(okG => { if (!okG) { t.disabled = false; return Promise.reject(); } return db.doc(`ciclos/${CID}`).set({ estado: 'listo', por: uid || '', en: new Date().toISOString(), valorLista: Math.round(tot) }); })      // 082-MESES: con cambios sin guardar, se guardan antes de marcar
       .then(() => toast('Forecast marcado como listo'), () => toast('No se pudo marcar; revisa tu permiso o la conexión'))
       .finally(() => { t.disabled = false; });
   }
@@ -2590,7 +2779,7 @@ document.addEventListener('input', ev => {
   const el = ev.target;
   if (el.id === 'q') { S.q = el.value; S.lim = 60; debounce(pintarLista); return; }
   if (el.id === 'q2') { S.q2 = el.value; S.capLim = 25; debounce(pintarGrid); return; }
-  if (el.dataset.nota) { const id = el.dataset.nota; local[id] = local[id] || { meses: {} }; local[id].nota = el.value; guardarLocal(); programar(id); return; }
+  if (el.dataset.nota) { const id = el.dataset.nota; local[id] = local[id] || { meses: {} }; local[id].nota = el.value; el.classList.toggle('k82-sg', k82Pend(id) > 0); k82Cambio(); return; }
   if (el.classList.contains('inp')) {
     const id = el.dataset.line, m = el.dataset.mes;
     if (!editable(m)) { el.value = kamU(LINES[id].c, m); return; }
@@ -2598,7 +2787,8 @@ document.addEventListener('input', ev => {
     const v = raw === '' ? 0 : parseInt(raw, 10);
     setKam(id, m, v);
     $$('.inp').forEach(o => { if (o !== el && o.dataset.line === id && o.dataset.mes === m) o.value = v; });
-    el.classList.toggle('ed', editado(LINES[id].c, m));
+    el.classList.toggle('ed', editado(LINES[id].c, m)); el.classList.toggle('k82-sg', k82SinGuardar(LINES[id].c, m));
+    $$('.inp').forEach(o => { if (o !== el && o.dataset.line === id && o.dataset.mes === m) o.classList.toggle('k82-sg', el.classList.contains('k82-sg')); });
     totFila(id); pieGrid(); refrescarGrupo(LINES[id].p); refrescarResumen();
     if (el.closest('#v-capturar')) inspector(id, m);
   }
@@ -2728,8 +2918,12 @@ function k72PintarListo() {
 function k72Poner(p, on) {
   if (!k72Puede()) { toast(k72PorQue()); return false; }
   const en = new Date().toISOString(), por = uid || '';
-  p.cap.forEach(c => { const l = local[c.id] = local[c.id] || { meses: {} }; l.meses = l.meses || {}; Object.assign(l, on ? { listo: true, listoEn: en, listoPor: por } : { listo: false, listoEn: '', listoPor: '' }); programar(c.id); });
-  guardarLocal();
+  K72.guardados = k82PendProd(p);      // 082-MESES: los cambios sin guardar del producto se guardan junto con el cierre
+  const ids = [...new Set(p.cap.map(c => c.id).concat(local[p.princ.id] ? [p.princ.id] : []))];
+  p.cap.forEach(c => { const l = local[c.id] = local[c.id] || { meses: {} }; l.meses = l.meses || {}; Object.assign(l, on ? { listo: true, listoEn: en, listoPor: por } : { listo: false, listoEn: '', listoPor: '' }); });
+  estado('Guardando…', 'pend');
+  Promise.allSettled(ids.map(guardar)).then(rs => { k82Despues(rs); });
+  k82Cambio(true);
   document.dispatchEvent(new CustomEvent('fcst:cierre', { detail: { clase: p.clase, id: p.id, listo: on } }));
   return true;
 }
@@ -2801,7 +2995,7 @@ document.addEventListener('click', ev => {
 document.addEventListener('click', ev => {
   const t = ev.target.closest && ev.target.closest('[data-k72],[data-k72-f],[data-k72-sig],[data-k72-plegar],[data-k72-ir],.k72-d'); if (!t) return;
   const ds = t.dataset;
-  if (ds.k72) { const p = PID[ds.k72]; if (!p) return; const on = !k72Cerrado(p); if (!k72Poner(p, on)) return; toast(on ? 'Producto cerrado: sus casillas quedan bloqueadas' : 'Producto reabierto'); k72Despues(p, on, t); return; }
+  if (ds.k72) { const p = PID[ds.k72]; if (!p) return; const on = !k72Cerrado(p); if (!k72Poner(p, on)) return; toast(on ? (K72.guardados ? `Se ${K72.guardados === 1 ? 'guardó 1 cambio' : 'guardaron ' + K72.guardados + ' cambios'} y se cerró el producto` : 'Producto cerrado: sus casillas quedan bloqueadas') : 'Producto reabierto'); k72Despues(p, on, t); return; }
   if (ds.k72F) { K72.filtro = ds.k72F; S.capLim = 25; pintarGrid(); const b = document.querySelector(`[data-k72-f="${ds.k72F}"]`); if (b) b.focus(); return; }
   if ('k72Plegar' in ds) { K72.plegar = !K72.plegar; k72GuardarPref(); pintarGrid(); const b = document.querySelector('[data-k72-plegar]'); if (b) b.focus(); return; }
   if ('k72Sig' in ds) { const p = k72Siguiente(S.abierto || K72.ultimo); if (p) k72IrA(p); return; }
@@ -2830,8 +3024,8 @@ if (typeof window.portalOrdenes === 'function' && conExportacion()) {
 if (VENCIDO) $('#b-listo').disabled = true;
 (async () => {
   if (!window.claude || !window.claude.use) {
-    try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); if (g && g.local) { local = g.local; sincronizarInputs(); refrescarResumen(); } } catch (e) { }
-    estado('Sin conexión: los cambios quedan en este navegador', 'pend'); return;
+    try { const g = JSON.parse(localStorage.getItem(LS_K82G) || 'null'); if (g && typeof g === 'object') { remote = g; sincronizarInputs(); refrescarResumen(); } } catch (e) { }      // 082-MESES: lo guardado en este navegador (sin OneDrive)
+    K82G.listo = 'Sin conexión: Guardar lo deja en este navegador'; estado(K82G.listo, 'pend'); k82Oferta(); return;
   }
   const t10 = setTimeout(() => estado('El servidor no responde todavía; lo que escribas se guardará al reconectar', 'pend'), 10000);
   try {
@@ -2848,10 +3042,12 @@ if (VENCIDO) $('#b-listo').disabled = true;
   db.collection(`ciclos/${CID}/lineas`).onSnapshot(snap => {
     const nr = {}; snap.docs.forEach(d => { nr[d.id] = d.data(); }); remote = nr;
     if (!snap.metadata.fromCache) clearTimeout(t10);
-    if (!pendientes) estado(VENCIDO ? 'Captura cerrada · solo lectura' : snap.size ? 'Guardado al día' : 'Listo para capturar', 'ok');
+    K82G.listo = K82G.listo && /^Guardado \d/.test(K82G.listo) ? K82G.listo : VENCIDO ? 'Captura cerrada · solo lectura' : snap.size ? 'Guardado al día' : 'Listo para capturar';
+    if (!pendientes) { if (k82N()) estado('Sin guardar', 'pend'); else estado(K82G.listo, 'ok'); }      // 082-MESES
     sincronizarInputs(); refrescarResumen();
   }, () => { clearTimeout(t10); estado('No se pudo leer lo guardado', 'err'); });
   db.doc(`ciclos/${CID}`).onSnapshot(d => { envio = d.exists ? d.data() : null; pintarEnvio(); }, () => { });
+  k82Oferta();
 })();
 
 };
