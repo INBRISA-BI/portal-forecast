@@ -86,13 +86,61 @@
       catch (e) { return null; }
     }));
     const out = res.filter(Boolean);
-    if (!out.length && C.rutaPropietario) {      // la cuenta dueña de la carpeta (BI) la encuentra por su ruta
+    if (C.rutaPropietario) {      // la cuenta dueña de la carpeta (BI) la encuentra por su ruta; 25-nov: también las que aún no están en config.js (EXPORTACION)
       try {
         const j = await gj(`/me/drive/root:/${encodeURI(C.rutaPropietario)}:/children?$select=id,name,folder,parentReference`);
-        j.value.filter(x => x.folder).forEach((x, i) => out.push({ kam: String(x.name).toUpperCase(), driveId: x.parentReference.driveId, itemId: x.id, orden: i, propietario: true }));
+        j.value.filter(x => x.folder && !out.some(o => o.itemId === x.id)).forEach((x, i) => out.push({ kam: String(x.name).toUpperCase(), driveId: x.parentReference.driveId, itemId: x.id, orden: conf.length + i, propietario: true }));
       } catch (e) { }
     }
     return out.sort((a, b) => a.orden - b.orden);
+  }
+
+  /* ---------- 25-nov · órdenes de exportación: carpeta EXPORTACION (rol EXPORTACION: Melissa, Mónica y BI) ----------
+     La carpeta 13 PORTAL WEB DATOS/EXPORTACION se reconoce por su nombre; quién la ve lo decide OneDrive (con quién la compartió BI).
+     datos_exportacion.json = maestros (solo lectura) · ordenes.json = única fuente de verdad de las órdenes (contrato ordenes-v1).
+     Se escribe siempre con If-Match (eTag leído); si no existe, con conflictBehavior=fail. 412/409 = otra persona guardó: la página
+     recarga y avisa, nunca pisa. En demostración (?demo) lee y escribe en el servidor local (14 EXPORTACION/_pruebas). */
+  const EXPO = 'EXPORTACION';
+  function almacenExpo(c) {
+    const local = nombre => fetch('/_local/' + EXPO + '/' + ruta(nombre)).then(async r => r.status === 404 ? null : r.ok ? { datos: JSON.parse(await r.text()), etag: r.headers.get('ETag') } : Promise.reject(Object.assign(new Error('HTTP ' + r.status), { status: r.status })));
+    const leer = nombre => DEMO ? local(nombre) : leerJson(c, nombre);
+    return {
+      leerDatos: () => leer('datos_exportacion.json'),
+      leerOrdenes: () => leer('ordenes.json'),
+      async escribirOrdenes(doc, etag) {
+        const cuerpo = JSON.stringify(doc, null, 1);
+        if (DEMO) {
+          const r = await fetch('/_local/' + EXPO + '/ordenes.json', { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, etag ? { 'If-Match': etag } : { 'If-None-Match': '*' }), body: cuerpo });
+          if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status });
+          return (await r.json()).eTag;
+        }
+        const r = await graph('PUT', item(c, 'ordenes.json') + ':/content' + (etag ? '' : '?@microsoft.graph.conflictBehavior=fail'), cuerpo, etag ? { 'If-Match': etag } : null);
+        return (await r.json()).eTag;
+      },
+    };
+  }
+  /* Pantalla de órdenes de exportación (app.js › window.Ordenes, módulo app_4_ordenes.js). */
+  function abrirOrdenes(expo, persona, kams) {
+    if (!window.Ordenes) { acceso('Esta versión de la página no trae el módulo de órdenes.', 'Intentar de nuevo', () => location.reload()); return; }
+    $('#acceso').hidden = true; $('#inicio').hidden = true;
+    window.Ordenes.iniciar({
+      almacen: almacenExpo(expo), persona,
+      volver: kams.length ? () => { PARAMS.delete('ordenes'); location.search = PARAMS.toString(); } : null,
+      salir: pca ? salir : null,
+    });
+  }
+  /* Para el portal del KAM (Mónica, BI): las órdenes en vivo, ya convertidas en líneas de tránsito y programadas (Ordenes.indicadores).
+     null si no se puede leer: la página usa lo que trae datos.json del generador. */
+  function lectorOrdenes(expo) {
+    let pr = null;
+    return () => pr || (pr = (async () => {
+      if (!window.Ordenes) return null;
+      const A = almacenExpo(expo);
+      const [dx, od] = await Promise.all([A.leerDatos(), A.leerOrdenes()]);
+      if (!dx || !od) return null;
+      const M = window.Ordenes.modelo(dx.datos);
+      return { lineas: window.Ordenes.indicadores(M, od.datos), actualizado: od.datos.actualizado || null, actualizadoPor: od.datos.actualizadoPor || null, ordenes: (od.datos.ordenes || []).length };
+    })().catch(() => null));
   }
 
   /* ---------- guardado: un archivo por KAM y por ciclo (captura_2026-11.json); los ciclos anteriores quedan como historia ---------- */
@@ -148,7 +196,8 @@
   }
 
   /* ---------- arranque del portal con los datos de un KAM ---------- */
-  function iniciar(D, db, persona, lista, actual, lectura, c) {
+  function iniciar(D, db, persona, lista, actual, lectura, c, expo) {
+    window.portalOrdenes = expo ? lectorOrdenes(expo) : null;      // 25-nov: lo usa app_3_detalle.js › órdenes en vivo
     /* Lectura a demanda de otros archivos de la carpeta del KAM (detalle/ del rastreo, linaje.json…), con el mismo leerJson.
        Una vez por archivo y por sesión; null = el archivo no existe (404). En demostración se lee del servidor local.
        Los nombres que terminan en .gz se descomprimen (textoDe); window.portalGzip dice si este navegador puede hacerlo. */
@@ -195,6 +244,7 @@
         location.search = PARAMS.toString();
       }), pe);
     }
+    if (expo) pe.parentNode.insertBefore(boton('b-ordenes', 'Órdenes de exportación', () => { PARAMS.set('ordenes', '1'); location.search = PARAMS.toString(); }), pe);
     if (pca) pe.parentNode.appendChild(boton('b-salir', 'Salir', salir));
     if (lectura) soloLectura();
   }
@@ -232,7 +282,7 @@
     } catch (e) { out.error = String(e.message || e); }
     return out;
   }
-  function inicioBI(filas, persona) {
+  function inicioBI(filas, persona, expo) {
     const fecha = iso => { const f = new Date(iso); return isNaN(f) ? '' : f.toLocaleDateString('es-CR', { day: 'numeric', month: 'short' }) + ' ' + f.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }); };
     const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
     const caja = $('#inicio-lista'); caja.textContent = '';
@@ -248,6 +298,12 @@
       a.appendChild(el('span', 'abrir', 'Abrir'));
       caja.appendChild(a);
     });
+    if (expo) {      // 25-nov: órdenes de exportación (Melissa, Mónica y BI)
+      const a = el('a', 'fila-kam'); const q = new URLSearchParams(PARAMS); q.delete('kam'); q.set('ordenes', '1'); a.href = '?' + q.toString();
+      a.appendChild(el('span', 'nombre', 'Exportación')); a.appendChild(el('span', 'pill acc', 'Órdenes'));
+      a.appendChild(el('span', 'detalle', 'Órdenes de exportación, resumen por cliente y categoría, y contenedor 3D'));
+      a.appendChild(el('span', 'abrir', 'Abrir')); caja.appendChild(a);
+    }
     $('#inicio-quien').textContent = `Entraste como ${persona.nombre}. Esta cuenta ve a todos los KAM; cada KAM solo ve el suyo.`;
     const s = $('#inicio-salir'); s.hidden = !pca; s.onclick = salir;
     $('#acceso').hidden = true; $('#inicio').hidden = false;
@@ -255,11 +311,13 @@
   }
 
   async function demo() {
-    const kams = await (await fetch('/_local/')).json(), lista = kams.map(k => ({ kam: k })), persona = { correo: 'demo', nombre: 'Demostración' };
+    const kams = await (await fetch('/_local/')).json(), lista = kams.map(k => ({ kam: k })), persona = { correo: 'demo', nombre: PARAMS.get('nombre') || 'Demostración' };
+    const expo = { kam: EXPO, demo: true };      // el servidor de pruebas sirve EXPORTACION desde 14 EXPORTACION/_pruebas
+    if (PARAMS.has('ordenes')) return abrirOrdenes(expo, persona, lista);
     const kam = (PARAMS.get('kam') || '').toUpperCase();
-    if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona);
+    if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona, expo);
     const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
-    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'), null);
+    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'), null, PARAMS.has('sinOrdenes') ? null : expo);
   }
 
   async function principal() {
@@ -283,6 +341,9 @@
     try { lista = await carpetas(); }
     catch (e) { informar({ paso: 'carpetas', cuenta: persona.correo, error: String(e.message || e) }); acceso('No se pudo consultar OneDrive.', 'Intentar de nuevo', () => location.reload(), String(e.message || e)); return; }
     const prueba = { en: new Date().toISOString(), origen: location.origin, cuenta: persona.correo, carpetas: lista };
+    const expo = lista.find(x => x.kam === EXPO) || null, kams = lista.filter(x => x.kam !== EXPO);      // 25-nov: rol EXPORTACION
+    if (expo && (PARAMS.has('ordenes') || !kams.length)) { informar(prueba); abrirOrdenes(expo, persona, kams); return; }
+    lista = kams;
     if (!lista.length) {
       informar(prueba);
       acceso(`La cuenta ${persona.correo} todavía no tiene un forecast compartido. Avisa a BI.`, 'Entrar con otra cuenta', () => pca.loginRedirect({ scopes: SCOPES, prompt: 'select_account' }));
@@ -293,7 +354,7 @@
     if (admin && !lista.some(x => x.kam === pedido)) {
       informar(prueba);
       acceso('Revisando el estado de cada KAM…', null);
-      inicioBI(await Promise.all(lista.map(resumen)), persona);
+      inicioBI(await Promise.all(lista.map(resumen)), persona, expo);
       return;
     }
     const c = lista.find(x => x.kam === pedido) || lista[0];
@@ -314,7 +375,7 @@
         } catch (e) { prueba.escritura = 'FALLA: ' + String(e.message || e); }
       }
       informar(prueba);
-      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura, c);
+      iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura, c, expo);
     } catch (e) {
       prueba.error = String(e.message || e); informar(prueba);
       acceso('No se pudo cargar el forecast.', 'Intentar de nuevo', () => location.reload(), String(e.message || e));
