@@ -1537,7 +1537,7 @@ function empaque(p, c) {
   const h = hashTxt(c.cod), pz = c.pzPorU || 1;
   return { largo: 480 + h % 160, ancho: 300 + (h >> 8) % 120, alto: 220 + (h >> 16) % 180, peso: Math.round((2 + pz * 0.04) * 10) / 10, pzCaja: pz, ejemplo: !EXPO, estimada: !!EXPO };
 }
-const etiquetaMedida = it => it.ejemplo ? ' (ejemplo)' : it.cubo ? ' (medidas estimadas desde m³)' : it.estimada ? ' (sin medidas ni m³: tamaño estimado)' : '';
+const etiquetaMedida = it => it.ejemplo ? ' (ejemplo)' : it.cubo ? ' (medida estimada: cubo de m³)' : it.estimada ? ' (sin medidas ni m³: tamaño estimado)' : '';      // 081-CONT: mismo texto que el 2D/3D
 const capacidadBI = (cod, tipo) => { const x = EXPO && EXPO.capacidad && EXPO.capacidad[cod]; return x ? x[tipo] || null : null; };
 /* órdenes reales para la vista 3D, separadas por fuente:
    · "programados" = pedidos programados (productos[].pedidosProgramados.ordenes; cajas = lo pedido);
@@ -1622,7 +1622,7 @@ function pintarContenedor() {
   const sel = (id, lbl, opts, val) => `<label class="c3-f"><span>${lbl}</span><select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}"${v === val ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
   const seg = (attr, opts, val) => `<div class="seg" role="group">${opts.map(([v, t, dis]) => `<button type="button" data-${attr}="${esc(v)}" aria-pressed="${v === val}"${dis ? ' disabled title="Sin órdenes de esta fuente en los datos"' : ''}>${esc(t)}</button>`).join('')}</div>`;
   box.innerHTML = `<section class="panel c3" aria-labelledby="c3-t">
-    <div class="panel-h"><h2 id="c3-t">Contenedores 3D</h2><span class="nota">${esc(k.nombre)} · interior ${nf2.format(k.largo / 1000)} × ${nf2.format(k.ancho / 1000)} × ${nf2.format(k.alto / 1000)} m · ${nf1.format(k.largo * k.ancho * k.alto / 1e9)} m³${k.pesoMax ? ' · carga máxima ' + fN(k.pesoMax) + ' kg' : ''}</span></div>
+    <div class="panel-h"><h2 id="c3-t">Contenedores</h2><span class="nota">${esc(k.nombre)} · interior ${nf2.format(k.largo / 1000)} × ${nf2.format(k.ancho / 1000)} × ${nf2.format(k.alto / 1000)} m · ${nf1.format(k.largo * k.ancho * k.alto / 1e9)} m³${k.pesoMax ? ' · carga máxima ' + fN(k.pesoMax) + ' kg' : ''}</span></div>
     ${ejemplo || ejEmp ? `<p class="aviso info c3-ej"><b>Ejemplo.</b> ${ejemplo ? 'Contenedores con medidas ISO estándar. ' : ''}${ejEmp ? 'Las cajas usan medidas de empaque estimadas. ' : ''}Los datos reales de contenedores y empaques llegan con la próxima carga.</p>` : ''}
     ${items.some(i => i.cubo || i.estimada) ? `<p class="small muted c3-ej">${items.some(i => i.cubo) ? 'Medidas estimadas desde m³: las cajas sin largo, ancho y alto se dibujan como el cubo equivalente de su m³ por caja (T_EMPAQUES · M3_CAJA). ' : ''}${items.some(i => i.estimada) ? 'Algunas cajas no tienen medidas ni m³ en T_EMPAQUES: se dibujan con un tamaño estimado. ' : ''}${factorLlenado() ? 'Se llena hasta el ' + nf.format(factorLlenado() * 100) + ' % del volumen interior (factor de llenado de BI).' : ''}</p>` : (factorLlenado() ? `<p class="small muted c3-ej">Se llena hasta el ${nf.format(factorLlenado() * 100)} % del volumen interior (factor de llenado de BI).</p>` : '')}
     <details class="c3-filtros-box"${C3.filtros ?? !matchMedia('(max-width: 620px)').matches ? ' open' : ''}><summary>Filtros</summary><div class="c3-filtros">
@@ -1643,7 +1643,8 @@ function pintarContenedor() {
     </div>
     ${n > 1 ? `<nav class="c3-nav" aria-label="Contenedores">${plan.conts.map((x, i) => `<button type="button" class="c3-mini" data-c3idx="${i}" aria-pressed="${i === C3.idx}" aria-label="Contenedor ${i + 1}: ${fN(x.cajas.length)} cajas, ${pct(x.vol / plan.vol)} del volumen"><b>${i + 1}</b><span class="c3-bar" aria-hidden="true"><i style="width:${Math.min(100, x.vol / plan.vol * 100).toFixed(0)}%"></i></span><small>${pct(x.vol / plan.vol)}</small></button>`).join('')}</nav>` : ''}
     <div class="c3-escena-box">
-      <div id="c3-escena" class="c3-escena" role="img" aria-label="${esc(cu ? `${k.nombre}, contenedor ${C3.idx + 1} de ${n}: ${cu.cajas.length} cajas, ${pct(cu.vol / plan.vol)} del volumen. El detalle está en la tabla Plan de carga.` : 'Contenedor vacío con estos filtros')}"><p class="c3-msg">Cargando la vista 3D…</p></div>
+      ${N3.barraHtml()}
+      <div id="c3-escena" class="c3-escena" role="img" aria-label="${esc(cu ? `${k.nombre}, contenedor ${C3.idx + 1} de ${n}: ${cu.cajas.length} cajas, ${pct(cu.vol / plan.vol)} del volumen. El detalle está en la tabla Plan de carga.` : 'Contenedor vacío con estos filtros')}"><p class="c3-msg">Cargando…</p></div>
       <div class="c3-tip" id="c3-tip" hidden></div>
       <div class="c3-ctrl">
         <button type="button" class="btn" data-c3cam="34">Vista 3/4</button><button type="button" class="btn" data-c3cam="puerta">Desde la puerta</button><button type="button" class="btn" data-c3cam="planta">Planta</button>
@@ -1652,7 +1653,7 @@ function pintarContenedor() {
       </div>
     </div>
     <div class="legend c3-ley">${leyenda3(cu)}</div>
-    <p class="small muted">Arrastre para girar; rueda o pellizco para acercar. Al seleccionar una caja se muestra su producto. Las cajas no se acuestan: solo giran sobre su base. La carga va del fondo hacia la puerta, piso por piso, sin pasar la altura útil.</p>
+    <p class="small muted"><span class="k81-solo3d">Arrastre para girar; rueda o pellizco para acercar. </span><span class="k81-solo2d">Planta y lateral a escala, con la misma carga que la vista 3D. </span>Al pasar el mouse o tocar una caja se muestran su producto, sus medidas, m³ y piezas. Las cajas no se acuestan: solo giran sobre su base. La carga va del fondo hacia la puerta, piso por piso, sin pasar la altura útil.</p>
     <details class="c3-plan"><summary>Plan de carga (tabla)</summary>${tablaPlan(plan)}</details>
   </section>`;
   dibujar3D(plan);
@@ -1661,7 +1662,7 @@ function leyenda3(cu) {
   if (!cu) return '';
   const g = new Map();
   cu.porItem.forEach((nC, it) => { const k = C3.color === 'cat' ? (it.p.cat || 'Sin categoría') : it.p.nombre; const o = g.get(k) || { color: it.color, cajas: 0 }; o.cajas += nC; g.set(k, o); });
-  return [...g.entries()].sort((a, b) => b[1].cajas - a[1].cajas).map(([k, o]) => `<span><i class="sw col" style="background:${o.color}"></i>${esc(C3.color === 'cat' ? nombreCat(k) : k)} · ${fN(o.cajas)} cajas</span>`).join('');
+  return [...g.entries()].sort((a, b) => b[1].cajas - a[1].cajas).map(([k, o]) => `<span><i class="sw col" style="background:${o.color}"></i>${esc(C3.color === 'cat' ? nombreCat(k) : k)} · ${fN(o.cajas)} cajas</span>`).join('') + N3.notaLeyenda(cu);      // 081-CONT
 }
 function tablaPlan(plan) {
   const filas = []; plan.conts.forEach((x, i) => x.porItem.forEach((nC, it) => filas.push([i + 1, it, nC])));
@@ -1671,20 +1672,15 @@ function tablaPlan(plan) {
     </tbody></table></div>${plan.noCaben.length ? `<p class="aviso" style="margin-top:8px">No caben por medida en este contenedor: ${plan.noCaben.map(i => esc(descB(i.c))).join(', ')}.</p>` : ''}`;
 }
 
-/* ---------- escena three.js (núcleo 3D al final del archivo) ---------- */
-async function cargarTres() { return C3.tres || (C3.tres = await N3.cargarTres()); }
+/* ---------- escena 3D o 2D (núcleo al final del archivo) ----------
+   081-CONT: N3.pintarVista elige 3D o 2D (elección guardada; 2D en celular, sin WebGL o si three.js no carga). El nombre dibujar3D
+   queda por compatibilidad. three.js solo se descarga si se dibuja en 3D. */
 async function dibujar3D(plan) {
   const el = $('#c3-escena'); if (!el) return;
-  let T;
-  try { T = await cargarTres(); } catch (e) { el.innerHTML = `<p class="c3-msg">No se pudo cargar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue disponible en la tabla.</p>`; return; }
-  if (!$('#c3-escena') || C3.plan !== plan) return;
-  if (C3.escena) C3.escena.destruir();
-  try { C3.escena = escena3D(T, $('#c3-escena'), plan, plan.conts[C3.idx]); }
-  catch (e) { C3.escena = null; $('#c3-escena').innerHTML = `<p class="c3-msg">Este navegador no pudo dibujar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue disponible en la tabla.</p>`; }
-}
-function escena3D(T, el, plan, cont) {
-  return N3.escena3D(T, el, plan, cont, { btn: $('#c3-anim'), tip: $('#c3-tip'),
-    tipHtml: (it, nC, k) => `<b>${esc(descB(it.c))}</b><span>${esc(cNom(it.c))} · caja ${nf.format(it.largo / 10)} × ${nf.format(it.ancho / 10)} × ${nf.format(it.alto / 10)} cm${etiquetaMedida(it)}</span>${capacidadBI(it.c.cod, k.id) ? `<span>Capacidad BI: ${fN(capacidadBI(it.c.cod, k.id).cajas)} cajas de este producto por contenedor</span>` : ''}<span>${fN(nC)} cajas en este contenedor · ${fN(nC * it.pzCaja)} pz · ${fN(it.cajas)} cajas en total</span>` });
+  if (C3.escena) { C3.escena.destruir(); C3.escena = null; }
+  const h = await N3.pintarVista(el, plan, plan.conts[C3.idx], { btn: $('#c3-anim'), tip: $('#c3-tip'), redibujar: () => dibujar3D(C3.plan), vigente: () => C3.plan === plan && $('#c3-escena') === el,
+    tipHtml: (it, nC, k) => `<b>${esc(descB(it.c))}</b><span>${esc(cNom(it.c))}</span>${N3.lineasCaja(it, nC)}${capacidadBI(it.c.cod, k.id) ? `<span>Capacidad BI: ${fN(capacidadBI(it.c.cod, k.id).cajas)} cajas de este producto por contenedor</span>` : ''}` });
+  if (h) C3.escena = h;
 }
 
 /* ======================================================================================================
@@ -1757,6 +1753,33 @@ function escena3D(T, el, plan, cont, ops) {
   const aristas = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Lm, Hm, Wm)), new THREE.LineBasicMaterial({ color: '#5D6A73' })); aristas.position.set(Lm / 2, Hm / 2, 0); g0.add(aristas);
   const pA = (k.puertaAncho || k.ancho) / 1000, pH = (k.puertaAlto || k.alto) / 1000;
   const marco = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(pA, pH)), new THREE.LineBasicMaterial({ color: '#0A78AE' })); marco.rotation.y = Math.PI / 2; marco.position.set(Lm + 0.005, pH / 2, 0); g0.add(marco);
+  // 081-CONT · cotas del contenedor: UN LineSegments (largo, ancho, alto y sus topes) y 4 rótulos HTML fijos + 1 dinámico; nunca uno por caja
+  const dC = 0.22, tp = 0.07, zC = Wm / 2 + dC, xC = Lm + dC, segC = [], L2 = (a, b) => segC.push(...a, ...b);
+  L2([0, 0, zC], [Lm, 0, zC]); L2([0, 0, Wm / 2], [0, 0, zC + tp]); L2([Lm, 0, Wm / 2], [Lm, 0, zC + tp]);                                  // largo, al pie del costado
+  L2([xC, 0, -Wm / 2], [xC, 0, Wm / 2]); L2([Lm, 0, -Wm / 2], [xC + tp, 0, -Wm / 2]); L2([Lm, 0, Wm / 2], [xC + tp, 0, Wm / 2]);          // ancho, frente a la puerta
+  L2([0, 0, zC], [0, Hm, zC]); L2([0, Hm, Wm / 2], [0, Hm, zC + tp]);                                                                    // alto, esquina del fondo
+  g0.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(segC, 3)), new THREE.LineBasicMaterial({ color: '#46535C' })));
+  const capa = document.createElement('div'); capa.className = 'k81-rotulos'; capa.setAttribute('aria-hidden', 'true'); el.appendChild(capa);
+  const rot = (txt, x, y, z, cls) => { const d = document.createElement('span'); d.className = 'k81-rot' + (cls ? ' ' + cls : ''); d.textContent = txt; capa.appendChild(d); return { d, p: new THREE.Vector3(x - Lm / 2, y, z) }; };
+  const rotulos = [rot('largo ' + m2K(Lm) + ' m', Lm / 2, 0, zC), rot('ancho ' + m2K(Wm) + ' m', xC, 0, 0), rot('alto ' + m2K(Hm) + ' m', 0, Hm / 2, zC),
+    rot('puerta ' + m2K(pA) + ' × ' + m2K(pH) + ' m', Lm, pH + 0.12, 0, 'k81-rot-p')];
+  const rCaja = rot('', 0, 0, 0, 'k81-rot-caja'); rCaja.d.hidden = true;
+  const marcoCaja = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: '#14232C' })); marcoCaja.visible = false; g0.add(marcoCaja);
+  const Vp = new THREE.Vector3(), Pc = new THREE.Vector3();
+  function rotular() {      // proyecta 4-5 puntos por cuadro (solo cuando se dibuja: render a demanda)
+    const w = el.clientWidth, h = el.clientHeight;
+    for (const r of sel >= 0 ? rotulos.concat([rCaja]) : rotulos) {
+      Vp.copy(r.p).project(camera);
+      const fuera = Vp.z > 1 || Math.abs(Vp.x) > 1.6 || Math.abs(Vp.y) > 1.6;      // un poco fuera del cuadro: se pega al borde en vez de desaparecer
+      r.d.style.visibility = fuera ? 'hidden' : '';
+      if (fuera) continue;
+      if (!r.w) r.w = r.d.offsetWidth || 80;      // ancho medido una vez por rótulo (el de la caja, al cambiar de caja)
+      const px = Math.max(r.w / 2 + 2, Math.min(w - r.w / 2 - 2, (Vp.x + 1) / 2 * w)), py = Math.max(11, Math.min(h - 11, (1 - Vp.y) / 2 * h));
+      r.d.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-50%)`;
+    }
+  }
+  let sel = -1, hoverEv = null;
+  const perf = { cuadros: 0, msRender: 0, animCuadros: 0, animFps: null, rayos: 0, msRayo: 0, ultimo: -1 };
   // cajas: una sola InstancedMesh con color por instancia (miles de cajas en una llamada de dibujo)
   const cajas = cont ? cont.cajas : [], n = cajas.length, hueco = 0.012;
   const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0 }), Math.max(1, n));
@@ -1774,12 +1797,15 @@ function escena3D(T, el, plan, cont, ops) {
   let vivo = 0, raf = 0, anim = null;
   function cuadro(t) {
     raf = 0;
-    if (anim) anim(t);
+    if (anim) { anim(t); perf.animCuadros++; }
+    if (hoverEv) { const a0 = performance.now(), i = rayo(hoverEv); perf.rayos++; perf.msRayo += performance.now() - a0; perf.ultimo = i; hoverEv = null; if (i !== sel) seleccionar(i); }      // 081-CONT: hover coalescido, un rayo por cuadro
     const mov = controls.update();
-    renderer.render(scene, camera);
+    const a = performance.now(); renderer.render(scene, camera); rotular(); perf.msRender += performance.now() - a; perf.cuadros++;
     if (anim || mov || vivo > 0) { vivo = Math.max(0, vivo - 1); raf = requestAnimationFrame(cuadro); }
   }
-  const pedir = (frames = 2) => { vivo = Math.max(vivo, frames); if (!raf) raf = requestAnimationFrame(cuadro); };
+  const pedir = (frames = 2) => { vivo = Math.max(vivo, frames); if (!raf && !document.hidden) raf = requestAnimationFrame(cuadro); };
+  const alOcultar = () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else pedir(2); };      // 081-CONT: pestaña oculta = sin cuadros
+  document.addEventListener('visibilitychange', alOcultar);
   function camara(v) {      // encuadra todo el contenedor según el campo de visión y el ancho de la pantalla
     const d0 = vistas[v] || vistas['34'], len = Math.hypot(...d0), fov = camera.fov * Math.PI / 180, fovH = 2 * Math.atan(Math.tan(fov / 2) * camera.aspect);
     const R = Math.hypot(Lm, Hm, Wm) / 2, dist = R / Math.sin(Math.min(fov, fovH) / 2) * (v === 'puerta' ? 0.55 : v === 'planta' ? 0.62 : 0.72);
@@ -1792,9 +1818,10 @@ function escena3D(T, el, plan, cont, ops) {
   const btn = ops.btn || null;
   function cargar(animar) {
     if (!n) { pedir(); return; }
-    if (!animar || MOV_REDUCIDO()) { anim = null; fin.forEach((p, i) => poner(i, p)); mesh.instanceMatrix.needsUpdate = true; if (btn) btn.textContent = 'Repetir carga'; pedir(); return; }
+    if (!animar || MOV_REDUCIDO()) { anim = null; fin.forEach((p, i) => poner(i, p)); mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); if (btn) btn.textContent = 'Repetir carga'; pedir(); return; }
     const dur = 420, paso = Math.min(14, 2600 / n), t0 = performance.now(), afuera = Lm + 1.2;
     if (btn) btn.textContent = 'Omitir animación';
+    perf.animCuadros = 0; perf.animFps = null;
     anim = t => {
       let listo = true;
       for (let i = 0; i < n; i++) {
@@ -1804,34 +1831,280 @@ function escena3D(T, el, plan, cont, ops) {
         poner(i, Pv);
       }
       mesh.instanceMatrix.needsUpdate = true;
-      if (listo) { anim = null; if (btn) btn.textContent = 'Repetir carga'; }
+      if (listo) { anim = null; mesh.computeBoundingSphere(); perf.animFps = (perf.animCuadros + 1) / Math.max(0.001, (t - t0) / 1000); if (btn) btn.textContent = 'Repetir carga'; }
     };
     pedir();
   }
   // selección: tooltip con producto, presentación, cajas y piezas en este contenedor
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), tip = ops.tip || null;
-  function tocar(ev) {
+  function rayo(ev) {
     const r = renderer.domElement.getBoundingClientRect(); ptr.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ptr, camera); const h = ray.intersectObject(mesh)[0];
-    if (!h || h.instanceId == null || !tip) { if (tip) tip.hidden = true; return; }
-    const it = cajas[h.instanceId].it, nC = cont.porItem.get(it) || 0;
+    ray.setFromCamera(ptr, camera); const h = n ? ray.intersectObject(mesh)[0] : null;
+    return h && h.instanceId != null ? h.instanceId : -1;
+  }
+  // 081-CONT: la caja en hover o tocada se marca con un contorno y UN rótulo con sus medidas (L × A × H cm)
+  function seleccionar(i) {
+    sel = i;
+    if (i < 0) { marcoCaja.visible = false; rCaja.d.hidden = true; return; }
+    const b = cajas[i]; mesh.getMatrixAt(i, M); Pc.setFromMatrixPosition(M);
+    marcoCaja.position.copy(Pc); marcoCaja.scale.set(b.l / 1000, b.h / 1000, b.w / 1000); marcoCaja.visible = true;
+    rCaja.p.set(Pc.x - Lm / 2, Pc.y + b.h / 2000 + 0.06, Pc.z);
+    rCaja.d.textContent = cmCajaK(b.it) + (tipoMedidaK(b.it) !== 'real' ? ' · ' + textoMedidaK(b.it) : '');
+    rCaja.d.hidden = false; rCaja.w = 0;
+  }
+  function tocar(ev) {
+    const i = rayo(ev); seleccionar(i); pedir(1);
+    if (i < 0 || !tip) { if (tip) tip.hidden = true; return; }
+    const it = cajas[i].it, nC = cont.porItem.get(it) || 0;
     tip.innerHTML = ops.tipHtml ? ops.tipHtml(it, nC, k) : '';
-    tip.hidden = false;
-    const tw = tip.offsetWidth || 240, x = ev.clientX - r.left, y = ev.clientY - r.top;
-    tip.style.left = Math.max(4, Math.min(r.width - tw - 4, x + 12)) + 'px'; tip.style.top = Math.max(4, y - 10) + 'px';
+    ponerTipK(tip, ev.clientX, ev.clientY);
   }
   let abajo = null;
   renderer.domElement.addEventListener('pointerdown', ev => { abajo = [ev.clientX, ev.clientY]; });
   renderer.domElement.addEventListener('pointerup', ev => { if (abajo && Math.hypot(ev.clientX - abajo[0], ev.clientY - abajo[1]) < 6) tocar(ev); abajo = null; });
+  renderer.domElement.addEventListener('pointermove', ev => { if (ev.pointerType !== 'mouse' || ev.buttons) return; hoverEv = ev; pedir(1); });
+  renderer.domElement.addEventListener('pointerleave', ev => { if (ev.pointerType !== 'mouse') return; hoverEv = null; if (sel >= 0) { seleccionar(-1); pedir(1); } });
   const ajustar = () => { const w = el.clientWidth || 600, h = el.clientHeight || 420; renderer.setSize(w, h, false); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%'; camera.aspect = w / h; camera.updateProjectionMatrix(); pedir(); };
   const ro3 = new ResizeObserver(ajustar); ro3.observe(el);
   ajustar(); camara('34'); cargar(true);
   return {
-    camara, animando: () => !!anim, recargar: () => cargar(!anim),
-    destruir() { cancelAnimationFrame(raf); ro3.disconnect(); controls.dispose(); scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) [].concat(o.material).forEach(m => m.dispose()); }); renderer.dispose(); renderer.domElement.remove(); },
+    camara, animando: () => !!anim, recargar: () => cargar(!anim), modo: '3d',
+    // 081-CONT: al salir se libera todo: geometrías, materiales, buffers de instancias, el contexto WebGL y los rótulos
+    destruir() { cancelAnimationFrame(raf); raf = 0; document.removeEventListener('visibilitychange', alOcultar); ro3.disconnect(); controls.dispose(); mesh.dispose(); scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) [].concat(o.material).forEach(m => m.dispose()); }); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); capa.remove(); },
+    medir() { const i = renderer.info; return { cajas: n, llamadas: i.render.calls, triangulos: i.render.triangles, geometrias: i.memory.geometries, texturas: i.memory.textures, cuadros: perf.cuadros, msRenderProm: perf.cuadros ? perf.msRender / perf.cuadros : null, fpsAnimacion: perf.animFps, rayos: perf.rayos, msRayoProm: perf.rayos ? perf.msRayo / perf.rayos : null, ultimoRayo: perf.ultimo }; },
+    medirGiro(ms = 3000) {      // solo para la medición del informe: gira la cámara alrededor de la carga y cuenta cuadros
+      return new Promise(res => {
+        const off0 = camera.position.clone().sub(controls.target), eje = new THREE.Vector3(0, 1, 0), t0 = performance.now(); let nC = 0, msR = 0;
+        const paso = t => {
+          camera.position.copy(controls.target).add(off0.clone().applyAxisAngle(eje, (t - t0) / ms * Math.PI * 2)); camera.lookAt(controls.target);
+          const a = performance.now(); renderer.render(scene, camera); rotular(); msR += performance.now() - a; nC++;
+          if (t - t0 < ms) requestAnimationFrame(paso); else res({ fps: nC / ((t - t0) / 1000), msRenderProm: msR / nC, cuadros: nC });
+        };
+        requestAnimationFrame(paso);
+      });
+    },
   };
 }
-  return { cargarTres, empacar, escena3D };
+/* ------------------------------------------------------------------------------------------------------------------------------
+   081-CONT · vista 3D o 2D, medidas en pantalla y regla de medidas de la caja. Todo vive dentro del núcleo (sin funciones del portal
+   del KAM): el módulo de órdenes lo usa igual. Estrategia de rendimiento (INFORME_081_CONTENEDOR.md):
+   · three.js solo se descarga al elegir 3D (import() dinámico de cargarTres); en 2D no se pide nada a la red.
+   · 3D: una InstancedMesh con color por instancia (1 llamada de dibujo para todas las cajas), render a demanda, sin cuadros con la
+     pestaña oculta, hover con un rayo por cuadro, 5 rótulos HTML como máximo y destruir() libera geometrías, buffers y el contexto WebGL.
+   · 2D: <canvas> (no SVG): un contenedor lleno trae 2.000–3.500 cajas por vista; en SVG serían miles de nodos en el DOM. Se dibuja
+     UNA vez por cambio (filtro, contenedor o ancho); el resaltado del mouse va en un segundo canvas encima y no redibuja la carga.
+   ------------------------------------------------------------------------------------------------------------------------------ */
+const K81 = { clave: 'k81-vista-contenedor', webgl: null, sesion: null, ms2D: null };
+const nfK = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 0 }), nfK1 = new Intl.NumberFormat('es-CR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nfK2 = new Intl.NumberFormat('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), nfK3 = new Intl.NumberFormat('es-CR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const escK = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pctK = v => nfK.format(v * 100) + ' %';
+function m2K(v) { return nfK2.format(v); }
+/* regla única de medidas (3D, 2D, tooltip y leyenda): largo × ancho × alto de T_EMPAQUES si vienen las tres; si no, el cubo del m³
+   por caja, rotulado "medida estimada (cubo de m³)". Los dos módulos marcan el ítem: órdenes con it.medida, KAM con it.cubo/estimada. */
+const tipoMedidaK = it => it.medida || (it.ejemplo ? 'ejemplo' : it.cubo ? 'cubo' : it.estimada ? 'estimada' : 'real');
+const TXT_MEDIDA_K = { real: '', cubo: 'medida estimada (cubo de m³)', estimada: 'sin medidas ni m³: tamaño estimado', ejemplo: 'medida de ejemplo' };
+const textoMedidaK = it => TXT_MEDIDA_K[tipoMedidaK(it)] || '';
+const cmCajaK = it => `${nfK.format(it.largo / 10)} × ${nfK.format(it.ancho / 10)} × ${nfK.format(it.alto / 10)} cm`;
+function lineasCaja(it, nC) {      // líneas comunes del tooltip: medidas, m³, cajas y piezas
+  const m3 = it.largo * it.ancho * it.alto / 1e9, tm = textoMedidaK(it);
+  return `<span>Caja ${cmCajaK(it)}${tm ? ` · <i>${escK(tm)}</i>` : ''}</span><span>${nfK3.format(m3)} m³ por caja · ${nfK1.format(m3 * nC)} m³ en este contenedor</span>`
+    + `<span>${nfK.format(nC)} cajas en este contenedor${it.pzCaja ? ' · ' + nfK.format(nC * it.pzCaja) + ' pz' : ''} · ${nfK.format(it.cajas)} cajas en total</span>`;
+}
+function notaLeyenda(cont) {      // la leyenda dice qué medidas son estimadas
+  if (!cont) return '';
+  const its = [...cont.porItem.keys()], cubo = its.filter(it => tipoMedidaK(it) === 'cubo').length, otras = its.filter(it => !['real', 'cubo'].includes(tipoMedidaK(it))).length;
+  if (!cubo && !otras) return `<span class="k81-ley-est">Medidas de caja reales (T_EMPAQUES)</span>`;
+  return `<span class="k81-ley-est"><i class="k81-sw-est" aria-hidden="true"></i>${cubo ? (cubo === its.length ? 'Todas las cajas: medida estimada (cubo de m³)' : `${nfK.format(cubo)} de ${nfK.format(its.length)} productos: medida estimada (cubo de m³)`) : ''}${cubo && otras ? ' · ' : ''}${otras ? `${nfK.format(otras)} con tamaño estimado (sin medidas ni m³)` : ''}</span>`;
+}
+function hayWebGL() {
+  if (K81.webgl != null) return K81.webgl;
+  try { const c = document.createElement('canvas'), g = c.getContext('webgl2') || c.getContext('webgl'); K81.webgl = !!g; const x = g && g.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); }
+  catch (e) { K81.webgl = false; }
+  return K81.webgl;
+}
+const esCelular = () => !!(window.matchMedia && matchMedia('(max-width: 760px)').matches);
+function modo(v) {      // sin argumento: el modo pedido (lo elegido antes; si nunca se eligió, 2D en celular y 3D en escritorio)
+  if (v === '2d' || v === '3d') { K81.sesion = v; try { localStorage.setItem(K81.clave, v); } catch (e) { /* sin almacenamiento: vale para esta visita */ } return v; }
+  if (K81.sesion) return K81.sesion;
+  let g = null; try { g = localStorage.getItem(K81.clave); } catch (e) { g = null; }
+  return g === '2d' || g === '3d' ? g : (esCelular() ? '2d' : '3d');
+}
+const barraHtml = () => { const m = modo(); return `<div class="k81-barra"><span class="k81-llenado"></span><div class="seg k81-modo" role="group" aria-label="Tipo de vista">`
+  + `<button type="button" data-k81modo="3d" aria-pressed="${m === '3d'}">3D</button><button type="button" data-k81modo="2d" aria-pressed="${m === '2d'}">2D</button></div></div>`
+  + `<p class="aviso info k81-aviso" role="status" hidden></p>`; };
+function ponerTipK(tip, cx, cy) {      // tooltip dentro de su contenedor, sin salirse de los bordes
+  tip.hidden = false;
+  const host = tip.offsetParent || tip.parentElement, r = host.getBoundingClientRect(), tw = tip.offsetWidth || 240, th = tip.offsetHeight || 60;
+  tip.style.left = Math.max(4, Math.min(r.width - tw - 4, cx - r.left + 12)) + 'px';
+  tip.style.top = Math.max(4, Math.min(r.height - th - 4, cy - r.top + 12)) + 'px';
+}
+const usadoK = cont => (cont ? cont.cajas.reduce((m, b) => Math.max(m, b.x + b.l / 2), 0) : 0);
+function marcar(el, m, plan, cont, aviso, ops) {
+  const box = el.closest('.c3-escena-box') || el.parentElement, panel = el.closest('.c3') || box; if (!box) return;
+  panel.dataset.k81vista = m;
+  box.querySelectorAll('button[data-k81modo]').forEach(b => {
+    b.setAttribute('aria-pressed', b.dataset.k81modo === m);
+    if (b.dataset.k81modo === '3d') { b.disabled = !hayWebGL(); b.title = b.disabled ? 'Este equipo no puede dibujar 3D (sin WebGL)' : ''; }
+  });
+  const g = box.querySelector('.k81-modo');
+  if (g && ops.redibujar) g.onclick = ev => { const b = ev.target.closest('button[data-k81modo]'); if (!b || b.disabled || b.getAttribute('aria-pressed') === 'true') return; modo(b.dataset.k81modo); ops.redibujar(); };
+  const av = box.querySelector('.k81-aviso'); if (av) { av.hidden = !aviso; av.textContent = aviso || ''; }
+  const ll = box.querySelector('.k81-llenado');
+  if (ll) { const k = plan.k, u = usadoK(cont); ll.innerHTML = cont ? `Llenado: <b>${pctK(cont.vol / plan.vol)}</b> del volumen · <b>${pctK(u / k.largo)}</b> del largo (${m2K(u / 1000)} de ${m2K(k.largo / 1000)} m)` : 'Sin carga con estos filtros'; }
+}
+/* punto de entrada de los dos módulos: dibuja en 3D o 2D según la elección y devuelve la escena ({ destruir, camara, recargar, medir }).
+   ops: tip, tipHtml(it, cajasEnEste, contenedor), btn (animación 3D), redibujar() (al cambiar 3D/2D), vigente() (sigue siendo la vista pedida) */
+async function pintarVista(el, plan, cont, ops) {
+  const turno = el._k81t = (el._k81t || 0) + 1, vale = () => el._k81t === turno && (!ops.vigente || ops.vigente());
+  let m = modo(), aviso = '', T = null;
+  if (m === '3d' && !hayWebGL()) { m = '2d'; aviso = 'Este equipo no puede dibujar 3D (sin WebGL): se muestra la vista 2D.'; }
+  if (m === '3d') {
+    marcar(el, '3d', plan, cont, '', ops);
+    el.innerHTML = '<p class="c3-msg">Cargando la vista 3D…</p>';
+    try { T = await cargarTres(); } catch (e) { m = '2d'; aviso = 'No se pudo descargar la librería 3D: se muestra la vista 2D.'; }
+    if (!vale()) return null;
+  }
+  if (m === '3d') {
+    try { marcar(el, '3d', plan, cont, '', ops); const h = escena3D(T, el, plan, cont, ops); el._k81 = h; return h; }
+    catch (e) { m = '2d'; aviso = 'Este navegador no pudo dibujar 3D: se muestra la vista 2D.'; }
+  }
+  marcar(el, '2d', plan, cont, aviso, ops);
+  const h = escena2D(el, plan, cont, ops); el._k81 = h; return h;
+}
+/* vista 2D: planta (desde arriba) y lateral (desde el costado), a escala y con las MISMAS posiciones de empacar() que el 3D.
+   Ancho ≥ 560 px: el largo va horizontal y las vistas una debajo de la otra. Más angosto (celular): el largo va hacia abajo (fondo
+   arriba, puerta abajo) y las dos vistas quedan lado a lado: casi el doble de escala en 390 px. */
+function escena2D(el, plan, cont, ops) {
+  const k = plan.k, L = k.largo, W = k.ancho, H = k.alto, cajas = cont ? cont.cajas : [], n = cajas.length, tip = ops.tip || null;
+  const pA = Math.min(W, k.puertaAncho || W), pH = Math.min(H, k.puertaAlto || H), usado = usadoK(cont);
+  el.innerHTML = ''; el.style.touchAction = 'pan-y'; el.style.minHeight = '0';
+  const cv = document.createElement('canvas'), cvR = document.createElement('canvas');
+  cv.className = 'k81-lienzo'; cvR.className = 'k81-lienzo k81-resalte';
+  [cv, cvR].forEach(c => { c.setAttribute('aria-hidden', 'true'); el.appendChild(c); });
+  // orden del pintor, una sola vez: en planta la caja más alta tapa a las de abajo; en el lateral, la más cercana tapa a las del fondo
+  const ordP = Int32Array.from(cajas.map((b, i) => i).sort((a, b) => (cajas[a].y + cajas[a].h / 2) - (cajas[b].y + cajas[b].h / 2)));
+  const ordL = Int32Array.from(cajas.map((b, i) => i).sort((a, b) => cajas[a].z - cajas[b].z));
+  const tonos = new Map();
+  const tono = (hex, t) => {      // color de la caja aclarado t (0 = color pleno); en caché por color y escalón
+    const kk = hex + t; let c = tonos.get(kk);
+    if (!c) { const ok = /^#[0-9a-f]{6}$/i.test(hex), x = ok ? parseInt(hex.slice(1), 16) : 0x8a949c, mx = v => Math.round(v + (255 - v) * t); c = `rgb(${mx(x >> 16 & 255)},${mx(x >> 8 & 255)},${mx(x & 255)})`; tonos.set(kk, c); }
+    return c;
+  };
+  let V = [], hits = [], dpr = 1, ancho0 = 0, alto0 = 0;
+  const R = (v, u0, u1, a0, a1) => v.vert ? [v.ox + a0 * v.s, v.oy + u0 * v.s, (a1 - a0) * v.s, (u1 - u0) * v.s] : [v.ox + u0 * v.s, v.oy + a0 * v.s, (u1 - u0) * v.s, (a1 - a0) * v.s];
+  const aDe = (v, b) => v.id === 'planta' ? [b.z + W / 2 - b.w / 2, b.z + W / 2 + b.w / 2] : v.vert ? [b.y - b.h / 2, b.y + b.h / 2] : [H - b.y - b.h / 2, H - b.y + b.h / 2];
+  function disposicion(w) {
+    const vert = w < 560;
+    if (!vert) {
+      const mL = 40, mR = 86, tit = 20, cS = 26, gap = 16, esc = 44;
+      const s = Math.min((w - mL - mR) / L, (Math.max(420, (window.innerHeight || 800) * 0.9) - (tit * 2 + cS * 2 + gap + esc)) / (W + H));
+      const yP = tit + cS, yL = yP + W * s + gap + tit;
+      V = [{ id: 'planta', titulo: 'Planta · vista desde arriba', span: W, ox: mL, oy: yP, s, vert }, { id: 'lateral', titulo: 'Lateral · vista desde el costado', span: H, ox: mL, oy: yL, s, vert }];
+      return { h: yL + H * s + cS + esc, s, vert };
+    }
+    const mT = 52, mB = 74, mIz = 30, gapH = 40, mDe = 10;
+    const s = Math.min((w - mIz - gapH - mDe) / (W + H), (Math.max(480, (window.innerHeight || 800) * 1.15) - mT - mB) / L);
+    V = [{ id: 'planta', titulo: 'Planta', span: W, ox: mIz, oy: mT, s, vert }, { id: 'lateral', titulo: 'Lateral', span: H, ox: mIz + W * s + gapH, oy: mT, s, vert }];
+    return { h: mT + L * s + mB, s, vert };
+  }
+  function cota(g, x1, y1, x2, y2, txt) {
+    const vt = Math.abs(x2 - x1) < Math.abs(y2 - y1), t = 4;
+    g.strokeStyle = '#46535C'; g.lineWidth = 1; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2);
+    if (vt) { g.moveTo(x1 - t, y1); g.lineTo(x1 + t, y1); g.moveTo(x2 - t, y2); g.lineTo(x2 + t, y2); } else { g.moveTo(x1, y1 - t); g.lineTo(x1, y1 + t); g.moveTo(x2, y2 - t); g.lineTo(x2, y2 + t); }
+    g.stroke();
+    g.save(); g.translate((x1 + x2) / 2, (y1 + y2) / 2); if (vt) g.rotate(-Math.PI / 2);
+    const tw = g.measureText(txt).width + 8; g.fillStyle = '#F4F7F9'; g.fillRect(-tw / 2, -8, tw, 16); g.fillStyle = '#14232C'; g.textAlign = 'center'; g.fillText(txt, 0, 0.5); g.restore();
+  }
+  function dibujar() {
+    const t0 = performance.now(), w = Math.max(280, el.clientWidth || 600), lay = disposicion(w), hh = Math.ceil(lay.h);
+    dpr = Math.min(window.devicePixelRatio || 1, 2); el.style.height = hh + 'px'; alto0 = hh;
+    [cv, cvR].forEach(c => { c.width = Math.round(w * dpr); c.height = Math.round(hh * dpr); c.style.width = w + 'px'; c.style.height = hh + 'px'; });
+    const g = cv.getContext('2d', { alpha: false }); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#F4F7F9'; g.fillRect(0, 0, w, hh); g.textBaseline = 'middle';
+    const F = '"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif';
+    hits = V.map(v => {
+      const [x, y, rw, rh] = R(v, 0, L, 0, v.span);
+      g.font = '600 12.5px ' + F; g.fillStyle = '#14232C'; g.textAlign = 'left'; g.fillText(v.titulo, v.vert ? x : 0, v.vert ? 12 : y - 34 + 8);
+      g.fillStyle = '#FFFFFF'; g.fillRect(x, y, rw, rh);
+      const ord = v.id === 'planta' ? ordP : ordL, rect = new Float32Array(ord.length * 4);
+      g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = 1;
+      for (let j = 0; j < ord.length; j++) {
+        const b = cajas[ord[j]], [a0, a1] = aDe(v, b), r = R(v, b.x - b.l / 2, b.x + b.l / 2, a0, a1);
+        const t = v.id === 'planta' ? 0.5 * (1 - (b.y + b.h / 2) / H) : 0.55 * (1 - (b.z + W / 2 + b.w / 2) / W);      // más clara = más baja (planta) o más al fondo (lateral)
+        g.fillStyle = tono(b.it.color, Math.round(t * 10) / 10); g.fillRect(r[0], r[1], r[2], r[3]);
+        if (r[2] > 4 && r[3] > 4) g.strokeRect(r[0] + 0.5, r[1] + 0.5, r[2] - 1, r[3] - 1);
+        rect[j * 4] = r[0]; rect[j * 4 + 1] = r[1]; rect[j * 4 + 2] = r[2]; rect[j * 4 + 3] = r[3];
+      }
+      g.strokeStyle = '#5D6A73'; g.lineWidth = 1.5; g.strokeRect(x, y, rw, rh);
+      // largo usado: línea punteada y texto en la zona vacía
+      if (usado > 0 && usado < L - 5) {
+        const [ux, uy] = v.vert ? [x, y + usado * v.s] : [x + usado * v.s, y];
+        g.save(); g.setLineDash([4, 3]); g.strokeStyle = '#0A78AE'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(ux, uy); g.lineTo(v.vert ? x + rw : ux, v.vert ? uy : y + rh); g.stroke(); g.restore();
+        if (v.id === 'lateral' || v.vert) { g.font = '11.5px ' + F; g.fillStyle = '#0A78AE'; g.textAlign = 'left'; const tx = 'usado ' + m2K(usado / 1000) + ' m';
+          if (v.vert) { if (v.id === 'planta' && (L - usado) * v.s > 18) g.fillText(tx, x + 3, uy + 10); }
+          else if ((L - usado) * v.s > g.measureText(tx).width + 10) g.fillText(tx, ux + 5, y + 11); else { const tw = g.measureText(tx).width; g.fillStyle = 'rgba(255,255,255,.92)'; g.fillRect(ux - tw - 9, y + 3, tw + 6, 16); g.fillStyle = '#0A78AE'; g.textAlign = 'right'; g.fillText(tx, ux - 5, y + 11); } }
+      }
+      // puerta: trazo grueso en el extremo de carga, con su medida
+      const pa = v.id === 'planta' ? [(W - pA) / 2, (W + pA) / 2] : v.vert ? [0, pH] : [H - pH, H];
+      g.strokeStyle = '#0A78AE'; g.lineWidth = 4; g.beginPath();
+      if (v.vert) { g.moveTo(x + pa[0] * v.s, y + rh + 2); g.lineTo(x + pa[1] * v.s, y + rh + 2); } else { g.moveTo(x + rw + 2, y + pa[0] * v.s); g.lineTo(x + rw + 2, y + pa[1] * v.s); }
+      g.stroke(); g.font = '600 11.5px ' + F; g.fillStyle = '#0A78AE';
+      const pTxt = (v.id === 'planta' ? 'ancho ' : 'alto ') + m2K((v.id === 'planta' ? pA : pH) / 1000) + ' m';
+      if (v.vert) { g.textAlign = 'center'; g.fillText('Puerta', x + rw / 2, y + rh + 14); g.font = '11px ' + F; g.fillText(pTxt, x + rw / 2, y + rh + 28); }
+      else { g.textAlign = 'left'; g.fillText('Puerta', x + rw + 10, y + rh / 2 - 8); g.font = '11px ' + F; g.fillText(pTxt, x + rw + 10, y + rh / 2 + 8); }
+      // cotas interiores del contenedor
+      g.font = '12px ' + F;
+      if (v.vert) { cota(g, x - 14, y, x - 14, y + rh, 'largo ' + m2K(L / 1000) + ' m'); cota(g, x, y - 12, x + rw, y - 12, m2K(v.span / 1000) + ' m'); g.font = '11px ' + F; g.fillStyle = '#5D6A73'; g.textAlign = 'left'; g.fillText(v.id === 'planta' ? 'ancho' : 'alto (piso a la izq.)', x, 27); }
+      else { if (v.id === 'planta') cota(g, x, y - 12, x + rw, y - 12, 'largo ' + m2K(L / 1000) + ' m'); else cota(g, x, y + rh + 13, x + rw, y + rh + 13, 'largo ' + m2K(L / 1000) + ' m');
+        cota(g, x - 14, y, x - 14, y + rh, (v.id === 'planta' ? 'ancho ' : 'alto ') + m2K(v.span / 1000) + ' m'); }
+      return { v, ord, rect, x, y, rw, rh };
+    });
+    // escala gráfica
+    const s = lay.s, mt = [0.5, 1, 2, 5].find(p => p * 1000 * s >= 34) || 5, seg = mt * 1000 * s, nT = Math.max(1, Math.min(4, Math.floor(Math.min(w * 0.45, 260) / seg)));
+    const ex = V[0].ox, ey = hh - 22; g.lineWidth = 1; g.strokeStyle = '#14232C';
+    for (let i = 0; i < nT; i++) { g.fillStyle = i % 2 ? '#FFFFFF' : '#14232C'; g.fillRect(ex + i * seg, ey, seg, 6); g.strokeRect(ex + i * seg + 0.5, ey + 0.5, seg - 1, 5); }
+    g.font = '11px ' + F; g.fillStyle = '#46535C'; g.textAlign = 'center';
+    for (let i = 0; i <= nT; i++) g.fillText(nfK1.format(i * mt).replace(/,0$/, '') + (i === nT ? ' m' : ''), ex + i * seg, ey + 15);
+    g.textAlign = 'left'; g.fillText('escala', ex + nT * seg + 20, ey + 3);
+    K81.ms2D = performance.now() - t0;
+  }
+  // hover / toque: el resaltado va en el canvas de arriba; la carga no se redibuja
+  let pend = null, rafH = 0, actual = -1;
+  function buscar(cx, cy) {
+    const r = cv.getBoundingClientRect(), x = cx - r.left, y = cy - r.top;
+    for (const h of hits) {
+      if (x < h.x || y < h.y || x > h.x + h.rw || y > h.y + h.rh) continue;
+      for (let j = h.ord.length - 1; j >= 0; j--) { const q = j * 4, R4 = h.rect; if (x >= R4[q] && x <= R4[q] + R4[q + 2] && y >= R4[q + 1] && y <= R4[q + 1] + R4[q + 3]) return h.ord[j]; }
+      return -1;
+    }
+    return -1;
+  }
+  function resaltar(i, cx, cy) {
+    if (i === actual && i >= 0) { if (tip && !tip.hidden) ponerTipK(tip, cx, cy); return; }
+    actual = i;
+    const g = cvR.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, cvR.width, cvR.height);
+    if (i < 0) { if (tip) tip.hidden = true; return; }
+    const it = cajas[i].it;
+    g.strokeStyle = '#14232C'; g.lineWidth = 1.2;
+    hits.forEach(h => { for (let j = 0; j < h.ord.length; j++) if (cajas[h.ord[j]].it === it) { const q = j * 4; g.strokeRect(h.rect[q] + 0.5, h.rect[q + 1] + 0.5, Math.max(1, h.rect[q + 2] - 1), Math.max(1, h.rect[q + 3] - 1)); } });
+    g.lineWidth = 2.5; hits.forEach(h => { const j = h.ord.indexOf(i), q = j * 4; if (j >= 0) g.strokeRect(h.rect[q] - 1, h.rect[q + 1] - 1, h.rect[q + 2] + 2, h.rect[q + 3] + 2); });
+    if (tip) { tip.innerHTML = ops.tipHtml ? ops.tipHtml(it, cont.porItem.get(it) || 0, k) : ''; ponerTipK(tip, cx, cy); }
+  }
+  const ac = new AbortController(), o = { signal: ac.signal };
+  el.addEventListener('pointermove', ev => { if (ev.pointerType !== 'mouse') return; pend = ev; if (!rafH) rafH = requestAnimationFrame(() => { rafH = 0; const e = pend; pend = null; if (e) resaltar(buscar(e.clientX, e.clientY), e.clientX, e.clientY); }); }, o);
+  el.addEventListener('pointerleave', ev => { if (ev.pointerType === 'mouse') { pend = null; resaltar(-1); } }, o);
+  el.addEventListener('pointerup', ev => { if (ev.pointerType !== 'mouse') resaltar(buscar(ev.clientX, ev.clientY), ev.clientX, ev.clientY); }, o);
+  const ro = new ResizeObserver(() => { const w = el.clientWidth; if (w && Math.abs(w - ancho0) > 1) { ancho0 = w; dibujar(); actual = -2; resaltar(-1); } });
+  ancho0 = el.clientWidth; dibujar(); ro.observe(el);
+  return {
+    modo: '2d', camara() {}, recargar() {}, animando: () => false,
+    destruir() { ro.disconnect(); ac.abort(); cancelAnimationFrame(rafH); cv.width = cv.height = cvR.width = cvR.height = 0; cv.remove(); cvR.remove(); el.style.height = ''; el.style.minHeight = ''; el.style.touchAction = ''; if (tip) tip.hidden = true; },
+    medir: () => ({ cajas: n, msDibujo: K81.ms2D, alto: alto0, nodos: el.getElementsByTagName('*').length }),
+    redibujar() { dibujar(); actual = -2; resaltar(-1); },
+  };
+}
+  return { cargarTres, empacar, escena3D, escena2D, pintarVista, barraHtml, lineasCaja, notaLeyenda, modo, hayWebGL, textoMedida: textoMedidaK, tipoMedida: tipoMedidaK, cmCaja: cmCajaK };
 }
 
 /* ---------- detalle del producto (<dialog> modal) ---------- */
@@ -1971,7 +2244,7 @@ function pintarDetalle(p) {
     <form method="dialog"><button class="cerrar" value="cerrar" autofocus aria-label="Cerrar el detalle"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9"/></svg><span>Cerrar</span></button></form></header>
   <div class="det-in">
   <div class="det-sub">
-    <div class="badges">${pill('src', 'Demanda: ' + fuenteProd(p))}${a.map(([c, x]) => pill(c, x)).join('')}${conExportacion() ? `<button type="button" class="chip" data-c3prod="${esc(p.id)}">Ver en contenedor 3D</button>` : ''}</div>
+    <div class="badges">${pill('src', 'Demanda: ' + fuenteProd(p))}${a.map(([c, x]) => pill(c, x)).join('')}${conExportacion() ? `<button type="button" class="chip" data-c3prod="${esc(p.id)}">Ver en contenedor</button>` : ''}</div>
     ${(p.sustituidos || []).length ? `<div class="small muted">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
     ${otros.length ? `<div class="small muted det-otros">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
   <div id="det-avisos">${avisosHtml(av)}</div>
@@ -2961,7 +3234,7 @@ body.modo-ordenes>header.top:not(#ord-top),body.modo-ordenes>section.filtros:not
   <div class="seg" role="group" aria-label="Vista">
     <button type="button" data-ov="lista" aria-pressed="true">Órdenes</button>
     <button type="button" data-ov="pivot" aria-pressed="false">Resumen órdenes</button>
-    <button type="button" data-ov="c3" aria-pressed="false">Contenedor 3D</button>
+    <button type="button" data-ov="c3" aria-pressed="false">Contenedor</button>
   </div>
   <label class="ord-f"><span>Mes de embarque</span><select id="ord-f-mes"></select></label>
   <div class="ord-f"><span id="ord-f-est-l">Estado</span><div class="chips" id="ord-f-est" role="group" aria-labelledby="ord-f-est-l"></div></div>
@@ -3165,7 +3438,7 @@ body.modo-ordenes>header.top:not(#ord-top),body.modo-ordenes>section.filtros:not
       const box = $('#ord-v-c3');
       if (S.c3.escena) { S.c3.escena.destruir(); S.c3.escena = null; }
       const ks = S.M.contenedores;
-      if (!N3 || !ks.length) { box.innerHTML = `<section class="panel ord-vacio">${!N3 ? 'La vista 3D no está disponible en esta página.' : 'datos_exportacion.json no trae contenedores (T_CONTENEDORES).'}</section>`; return; }
+      if (!N3 || !ks.length) { box.innerHTML = `<section class="panel ord-vacio">${!N3 ? 'La vista del contenedor no está disponible en esta página.' : 'datos_exportacion.json no trae contenedores (T_CONTENEDORES).'}</section>`; return; }
       const k = ks.find(x => x.id === S.c3.tipo) || ks.find(x => /40' HC/i.test(x.id)) || ks[ks.length - 1]; S.c3.tipo = k.id;
       const items = itemsC3(), plan = N3.empacar(items, k, S.M.factor); S.c3.plan = plan; if (S.c3.idx >= plan.conts.length) S.c3.idx = 0;
       const cu = plan.conts[S.c3.idx], n = plan.conts.length, pct = x => nf0.format(x * 100) + ' %';
@@ -3176,7 +3449,7 @@ body.modo-ordenes>header.top:not(#ord-top),body.modo-ordenes>section.filtros:not
       const g = new Map(); if (cu) cu.porItem.forEach((nC, it) => { const o = g.get(it.cat) || { color: it.color, cajas: 0 }; o.cajas += nC; g.set(it.cat, o); });
       const filasPlan = []; plan.conts.forEach((x, i) => x.porItem.forEach((nC, it) => filasPlan.push([i + 1, it, nC])));
       box.innerHTML = `<section class="panel c3" aria-labelledby="ord-c3-t">
-        <div class="panel-h"><h2 id="ord-c3-t">Contenedor 3D</h2><span class="nota">${esc(ordSel ? `${ordSel.cliente} · OC ${ordSel.oc}` : (S.mes ? mll(S.mes) : 'todos los meses') + (S.estados.size ? ' · ' + [...S.estados].map(cap).join(', ') : ''))} · ${esc(k.nombre)} · interior ${nf2.format(k.largo / 1000)} × ${nf2.format(k.ancho / 1000)} × ${nf2.format(k.alto / 1000)} m</span></div>
+        <div class="panel-h"><h2 id="ord-c3-t">Contenedor</h2><span class="nota">${esc(ordSel ? `${ordSel.cliente} · OC ${ordSel.oc}` : (S.mes ? mll(S.mes) : 'todos los meses') + (S.estados.size ? ' · ' + [...S.estados].map(cap).join(', ') : ''))} · ${esc(k.nombre)} · interior ${nf2.format(k.largo / 1000)} × ${nf2.format(k.ancho / 1000)} × ${nf2.format(k.alto / 1000)} m</span></div>
         <div class="c3-filtros">
           <div class="c3-f"><span>Contenedor</span><div class="seg" role="group" aria-label="Tipo de contenedor">${ks.map(x => `<button type="button" data-oc3tipo="${esc(x.id)}" aria-pressed="${x.id === k.id}">${esc(x.id)}</button>`).join('')}</div></div>
           <label class="c3-f"><span>Órdenes</span><select id="ord-c3-orden"><option value="">Todas las del filtro (${visibles().length})</option>${opts.map(([v, t]) => `<option value="${esc(v)}"${v === S.c3.orden ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
@@ -3190,24 +3463,23 @@ body.modo-ordenes>header.top:not(#ord-top),body.modo-ordenes>section.filtros:not
         </div>
         ${n > 1 ? `<nav class="c3-nav" aria-label="Contenedores">${plan.conts.map((x, i) => `<button type="button" class="c3-mini" data-oc3idx="${i}" aria-pressed="${i === S.c3.idx}" aria-label="Contenedor ${i + 1}: ${fN(x.cajas.length)} cajas, ${pct(x.vol / plan.vol)} del volumen"><b>${i + 1}</b><span class="c3-bar" aria-hidden="true"><i style="width:${Math.min(100, x.vol / plan.vol * 100).toFixed(0)}%"></i></span><small>${pct(x.vol / plan.vol)}</small></button>`).join('')}</nav>` : ''}
         <div class="c3-escena-box">
-          <div id="ord-c3-escena" class="c3-escena" role="img" aria-label="${esc(cu ? `${k.nombre}, contenedor ${S.c3.idx + 1} de ${n}: ${cu.cajas.length} cajas, ${pct(cu.vol / plan.vol)} del volumen. El detalle está en la tabla Plan de carga.` : 'Contenedor vacío con estos filtros')}"><p class="c3-msg">Cargando la vista 3D…</p></div>
+          ${N3.barraHtml()}
+          <div id="ord-c3-escena" class="c3-escena" role="img" aria-label="${esc(cu ? `${k.nombre}, contenedor ${S.c3.idx + 1} de ${n}: ${cu.cajas.length} cajas, ${pct(cu.vol / plan.vol)} del volumen. El detalle está en la tabla Plan de carga.` : 'Contenedor vacío con estos filtros')}"><p class="c3-msg">Cargando…</p></div>
           <div class="c3-tip" id="ord-c3-tip" hidden></div>
           <div class="c3-ctrl"><button type="button" class="btn" data-oc3cam="34">Vista 3/4</button><button type="button" class="btn" data-oc3cam="puerta">Desde la puerta</button><button type="button" class="btn" data-oc3cam="planta">Planta</button><button type="button" class="btn" id="ord-c3-anim" data-oc3anim>Repetir carga</button></div>
         </div>
-        <div class="legend c3-ley">${[...g.entries()].sort((a, b) => b[1].cajas - a[1].cajas).map(([c, o]) => `<span><i class="sw col" style="background:${o.color}"></i>${esc(c)} · ${fN(o.cajas)} cajas</span>`).join('')}</div>
+        <div class="legend c3-ley">${[...g.entries()].sort((a, b) => b[1].cajas - a[1].cajas).map(([c, o]) => `<span><i class="sw col" style="background:${o.color}"></i>${esc(c)} · ${fN(o.cajas)} cajas</span>`).join('')}${N3.notaLeyenda(cu)}</div>
         <details class="c3-plan"><summary>Plan de carga (tabla)</summary>${filasPlan.length ? `<div class="tw" role="region" tabindex="0" aria-label="Plan de carga" style="max-height:320px"><table class="tbl"><thead><tr><th>Cont.</th><th class="l">Código</th><th class="l">Producto</th><th>Cajas</th><th>Piezas</th><th class="l">Caja (cm)</th></tr></thead><tbody>${filasPlan.map(([i, it, nC]) => `<tr><td>${i}</td><td class="l">${esc(it.cod)}</td><td class="l" style="white-space:normal">${esc(it.desc)}</td><td>${fN(nC)}</td><td>${it.pzCaja ? fN(nC * it.pzCaja) : '—'}</td><td class="l">${nf0.format(it.largo / 10)} × ${nf0.format(it.ancho / 10)} × ${nf0.format(it.alto / 10)}${it.medida === 'cubo' ? ' (cubo del m³)' : it.medida === 'estimada' ? ' (estimada)' : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Sin carga con estos filtros.</p>'}</details>
       </section>`;
       dibujarC3(plan);
     }
-    async function dibujarC3(plan) {
+    async function dibujarC3(plan) {      // 081-CONT: 3D o 2D con N3.pintarVista (three.js solo se descarga en 3D)
       const el = $('#ord-c3-escena'); if (!el) return;
-      let T; try { T = await N3.cargarTres(); } catch (e) { el.innerHTML = `<p class="c3-msg">No se pudo cargar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue en la tabla.</p>`; return; }
-      if (!$('#ord-c3-escena') || S.c3.plan !== plan || S.vista !== 'c3') return;
-      if (S.c3.escena) S.c3.escena.destruir();
-      try {
-        S.c3.escena = N3.escena3D(T, $('#ord-c3-escena'), plan, plan.conts[S.c3.idx], { btn: $('#ord-c3-anim'), tip: $('#ord-c3-tip'),
-          tipHtml: (it, nC) => `<b>${esc(it.desc)}</b><span>${esc(it.cod)} · caja ${nf0.format(it.largo / 10)} × ${nf0.format(it.ancho / 10)} × ${nf0.format(it.alto / 10)} cm${it.medida === 'cubo' ? ' (cubo del m³)' : ''}</span><span>${fN(nC)} cajas en este contenedor · ${fN(it.cajas)} en total</span>` });
-      } catch (e) { S.c3.escena = null; $('#ord-c3-escena').innerHTML = `<p class="c3-msg">Este navegador no pudo dibujar la vista 3D (${esc(e && e.message || e)}). El plan de carga sigue en la tabla.</p>`; }
+      if (S.c3.escena) { S.c3.escena.destruir(); S.c3.escena = null; }
+      const h = await N3.pintarVista(el, plan, plan.conts[S.c3.idx], { btn: $('#ord-c3-anim'), tip: $('#ord-c3-tip'), redibujar: () => dibujarC3(S.c3.plan),
+        vigente: () => S.c3.plan === plan && S.vista === 'c3' && $('#ord-c3-escena') === el,
+        tipHtml: (it, nC) => `<b>${esc(it.desc)}</b><span>${esc(it.cod)} · ${esc(it.cat || '')}</span>${N3.lineasCaja(it, nC)}` });
+      if (h) S.c3.escena = h;
     }
 
     function pintar() {

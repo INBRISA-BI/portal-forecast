@@ -598,6 +598,28 @@ table.cap tr.grp .gwrap .k72-g{flex-basis:100%;margin-top:2px}
   .k72-avance .panel-h .der{margin-left:0;width:100%}.k72-avance .panel-h .der .btn{flex:1 1 auto;justify-content:center}
 }
 /* 072-CIERRE fin */
+/* 081-CONT inicio */
+/* contenedor 3D / 2D: barra con llenado y selector, rótulos de cotas en 3D, lienzo 2D */
+.c3-escena{position:relative}
+.k81-barra{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;padding:6px 8px;border-bottom:1px solid var(--line);background:var(--surface)}
+.k81-llenado{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;min-width:0}
+.k81-llenado b{color:var(--ink);font-weight:600}
+.k81-modo button{min-width:48px}
+.k81-modo button:disabled{opacity:.45;cursor:not-allowed}
+.k81-aviso{margin:0;border-radius:0}
+.k81-lienzo{display:block;position:absolute;left:0;top:0}
+.k81-lienzo:first-child{position:relative}
+.k81-rotulos{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.k81-rot{position:absolute;left:0;top:0;white-space:nowrap;font-size:11.5px;font-weight:600;line-height:1.3;color:var(--ink);background:rgba(255,255,255,.9);border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;font-variant-numeric:tabular-nums}
+.k81-rot-p{color:var(--accent);border-color:#A9D3EA}
+.k81-rot-caja{background:var(--ink);color:#fff;border-color:var(--ink);z-index:1}
+.k81-ley-est{color:var(--ink-3)}
+.k81-sw-est{display:inline-block;width:11px;height:11px;border:1.5px dashed var(--ink-3);border-radius:2px}
+.c3[data-k81vista="2d"] [data-c3cam],.c3[data-k81vista="2d"] [data-c3anim],.c3[data-k81vista="2d"] [data-oc3cam],.c3[data-k81vista="2d"] [data-oc3anim]{display:none}
+.c3[data-k81vista="2d"] .c3-ctrl{position:static;padding:0 8px 8px;max-width:none}
+.c3[data-k81vista="2d"] .k81-solo3d,.c3:not([data-k81vista="2d"]) .k81-solo2d{display:none}
+@media (max-width:620px){.k81-llenado{font-size:12px}.k81-rot{font-size:10.5px;padding:0 4px}}
+/* 081-CONT fin */
 </style>
 <style>
 body.cargando>header,body.cargando>section,body.cargando>main{display:none}
@@ -665,7 +687,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
       <button type="button" data-v="tendencia" aria-pressed="true">Resumen</button>
       <button type="button" data-v="capturar" aria-pressed="false">Capturar forecast</button>
       <button type="button" data-v="distribuidores" aria-pressed="false">Distribuidores</button>
-      <button type="button" data-v="contenedor" aria-pressed="false" id="tab-c3" hidden>Contenedores 3D</button>
+      <button type="button" data-v="contenedor" aria-pressed="false" id="tab-c3" hidden>Contenedores</button>
     </div>
     <div class="spacer"></div>
     <span class="lbl-f" id="lbl-u">Ver en</span>
@@ -754,7 +776,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=08bf23e5"></script>
+<script src="app.js?v=02a42975"></script>
 <script src="portal.js?v=26a93b56"></script>
 </body>
 </html>
