@@ -185,6 +185,19 @@ const S = { dist: 'TODOS', vista: 'tendencia', unidad: 'form', q: '', cat: '', o
 let remote = {}, local = {}, uid = null, db = null, userCap = null, envio = null;
 const LS = 'portal-' + CID;
 try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); if (g && g.unidad) S.unidad = g.unidad; } catch (e) { }
+/* 070-GRAFICO · filtro del gráfico "Tendencia del mix" (estado global: lo pueden leer las tarjetas y cualquier vista)
+   S.prod     = grupo del producto elegido (productos[].grupo; se muestra productos[].nombre, el nombre Brinova) o null = todo el mix
+   S.prodDist = 'TODOS' o una clase: alcance del producto cuando el filtro de distribuidor de arriba está en "Todos"
+   selGraf()  = productos que suma el gráfico y las tarjetas superiores: el mix del distribuidor o el producto elegido (uno o todos sus distribuidores)
+   S.ocultas  = series apagadas en los gráficos de tendencia (claves de seriesDe: si, real, kp, alg, kam); se recuerda en localStorage
+   S.agrupar  = "Productos del mix" agrupada por producto (suma de distribuidores; en piezas si cambian las presentaciones)
+   S.capProd  = id del producto que se está capturando (gráfico compacto de la pestaña Capturar) */
+Object.assign(S, { prod: null, prodDist: 'TODOS', ocultas: [], agrupar: false, gpAbierto: {}, capProd: null, cgOculto: false });
+const LS_GRAF = 'portal-graf';
+try { const g = JSON.parse(localStorage.getItem(LS_GRAF) || 'null'); if (g) { if (Array.isArray(g.ocultas)) S.ocultas = g.ocultas.filter(k => typeof k === 'string'); S.agrupar = !!g.agrupar; S.cgOculto = !!g.cgOculto; } } catch (e) { }
+function guardarGraf() { try { localStorage.setItem(LS_GRAF, JSON.stringify({ ocultas: S.ocultas, agrupar: S.agrupar, cgOculto: S.cgOculto })); } catch (e) { } }
+const prodAlcance = () => S.dist !== 'TODOS' ? S.dist : (S.prodDist || 'TODOS');
+function selGraf() { if (!S.prod) return P.filter(enDist); const a = prodAlcance(); return P.filter(p => p.grupo === S.prod && (a === 'TODOS' || p.clase === a)); }
 
 /* ---------- valores efectivos ---------- */
 const vig = (c, m) => (c.kam && c.kam[m] != null) ? c.kam[m] : null;          // forecast vigente: tu formulario (mes en curso = oficial en v2)
@@ -467,6 +480,125 @@ function tablaTrim(pk) {
   const bl = (D.precisionKam || {}).trimestres, fs = pk && pk.trimestres; if (!Array.isArray(bl) || !Array.isArray(fs) || !fs.length) return '';
   return '<table class="dx-tab"><tbody><tr><td><b>Trimestre</b></td><td><b>Forecast · sell in · error (pz) · acierto · sesgo</b></td></tr>' + fs.map((x, i) => `<tr><td>${esc(rango(bl[i] || []))}</td><td>${fN(x.fcstPz)} · ${fN(x.sellInPz)} · ${fN(x.errPz)} · ${aciertoTxt(x.acierto, x.sellInPz, true)} · ${ok(x.sesgo) ? fP(x.sesgo) : '—'}</td></tr>`).join('') + '</tbody></table>';
 }
+/* ---------- 070-PRECISION · precisión del forecast = FCST ACC PM del reporte Forecast y PRM (datos.json › accPm) ----------
+   ACC PM = 1 − Σ por producto base (Cod. Entrada) de |Σ meses sell in − Σ meses forecast| ÷ Σ forecast, piso 0; vacío sin forecast ni compras.
+   El KAM elige desde–hasta entre los meses cerrados (máximo accPm.maxMeses = 12); se rehace aquí con el filtro de la página:
+   distribuidor (S.dist), producto del gráfico (S.prod + prodAlcance) o categoría (S.cat). Con "Todos" suma todas las clases del KAM
+   (como el reporte, también las que no están en la página) y los errores de un distribuidor compensan los de otro dentro del mismo producto.
+   Se quitan de los dos lados los meses de accPm.excluir (formulario del KAM en 0 por error); el reporte de Power BI no los quita.
+   Sin accPm (datos viejos) la tarjeta queda como antes (precisionKam). */
+const AP = D.accPm && Array.isArray(D.accPm.meses) && D.accPm.meses.length && Array.isArray(D.accPm.filas) ? D.accPm : null;
+const ACCR = { desde: null, hasta: null, aviso: '' };
+const LS_ACC = 'portal-accpm-' + CID;
+const nfP1 = new Intl.NumberFormat('es-CR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const pct1 = v => ok(v) ? nfP1.format(Math.max(0, Math.round(v * 1000) / 10)) + ' %' : '—';      // como el reporte: 0,0 %
+function accSetRango(desde, hasta, cambio) {
+  const ms = AP.meses, N = AP.maxMeses || 12, def = AP.defecto || [ms[Math.max(0, ms.length - N)], ms[ms.length - 1]];
+  if (!ms.includes(desde)) desde = def[0];
+  if (!ms.includes(hasta)) hasta = def[1];
+  if (desde > hasta) { if (cambio === 'hasta') desde = hasta; else hasta = desde; }
+  let i0 = ms.indexOf(desde), i1 = ms.indexOf(hasta);
+  ACCR.aviso = '';
+  if (i1 - i0 + 1 > N) {
+    if (cambio === 'desde') i1 = i0 + N - 1; else i0 = i1 - N + 1;
+    ACCR.aviso = `Se pueden medir hasta ${N} meses: el rango quedó en ${ml(ms[i0])} – ${ml(ms[i1])}.`;
+  }
+  ACCR.desde = ms[i0]; ACCR.hasta = ms[i1];
+  try { localStorage.setItem(LS_ACC, JSON.stringify({ desde: ACCR.desde, hasta: ACCR.hasta })); } catch (e) { }
+}
+if (AP) { let g = null; try { g = JSON.parse(localStorage.getItem(LS_ACC) || 'null'); } catch (e) { } accSetRango(g && g.desde, g && g.hasta, 'hasta'); ACCR.aviso = ''; }
+const accMeses = () => AP.meses.slice(AP.meses.indexOf(ACCR.desde), AP.meses.indexOf(ACCR.hasta) + 1);
+/* alcance de la tarjeta: el mismo que las otras tarjetas (selGraf) más la categoría de la lista cuando no hay producto elegido */
+function accAlcance() {
+  if (S.prod) { const a = prodAlcance(); return { clases: a === 'TODOS' ? null : [a], grupo: S.prod, cat: '' }; }
+  return { clases: S.dist === 'TODOS' ? null : [S.dist], grupo: null, cat: S.cat || '' };
+}
+function accAlcanceTxt(al) {
+  const dst = al.clases ? al.clases.join(', ') : 'todos tus distribuidores';
+  if (al.grupo) { const p = P.find(x => x.grupo === al.grupo); return (p ? p.nombre : al.grupo) + ' · ' + dst; }
+  return dst + (al.cat ? ' · categoría ' + al.cat : '');
+}
+function accPmCalc(al, excluir = true, desde = ACCR.desde, hasta = ACCR.hasta) {
+  const ms = AP.meses, i0 = ms.indexOf(desde), i1 = ms.indexOf(hasta);
+  const fuera = new Set(excluir ? (AP.excluir || []).map(x => x.clase + '|' + x.mes) : []);
+  const e = new Map();
+  for (const [ci, ei, pid, cat, f, r] of AP.filas) {
+    const cl = AP.clases[ci];
+    if (al.clases && !al.clases.includes(cl)) continue;
+    if (al.grupo && !(pid && PID[pid] && PID[pid].grupo === al.grupo)) continue;
+    if (al.cat && cat !== al.cat) continue;
+    let sf = 0, sr = 0;
+    for (let i = i0; i <= i1; i++) { if (fuera.has(cl + '|' + ms[i])) continue; sf += f[i] || 0; sr += r[i] || 0; }
+    const t = e.get(ei) || [0, 0]; t[0] += sf; t[1] += sr; e.set(ei, t);
+  }
+  let F = 0, R = 0, desv = 0;
+  e.forEach(t => { F += t[0]; R += t[1]; desv += Math.abs(t[1] - t[0]); });
+  const acc = !F && !R ? null : F ? Math.max(0, 1 - desv / F) : 0;
+  const top = [...e.entries()].map(([ei, t]) => ({ ei, f: t[0], r: t[1], d: Math.abs(t[1] - t[0]) })).filter(x => x.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
+  return { acc, F, R, desv, sesgo: R > 0 ? F / R - 1 : null, top };
+}
+/* meses quitados que tocan el alcance y el rango, agrupados por mes: [{mes, clases, motivo}] */
+function accExcl(al) {
+  const g = new Map();
+  (AP.excluir || []).forEach(x => { if (x.mes < ACCR.desde || x.mes > ACCR.hasta || (al.clases && !al.clases.includes(x.clase))) return;
+    if (!g.has(x.mes)) g.set(x.mes, { mes: x.mes, clases: [], motivo: x.motivo || '' }); g.get(x.mes).clases.push(x.clase); });
+  return [...g.values()].sort((a, b) => a.mes < b.mes ? -1 : 1);
+}
+const accExclTxt = ex => ex.length ? 'Sin contar ' + lista(ex.map(x => ml(x.mes))) + ': el formulario del KAM quedó en 0 por error' + (quienTxt(ex[0].clases) ? ' (' + quienTxt(ex[0].clases) + ')' : '') + ', así que ese mes no se compara.' : '';
+const accEntrada = ei => { const x = (AP.entradas || [])[ei] || []; return String(x[1] || x[0] || '—').replace(/^MASTER\s+/i, ''); };
+function accSelector() {
+  const op = sel => AP.meses.map(m => `<option value="${m}"${m === sel ? ' selected' : ''}>${esc(mll(m))}</option>`).join('');
+  return `<fieldset class="acc-rango"><legend>Meses a medir <span class="muted">(meses cerrados, máximo ${AP.maxMeses || 12})</span></legend>`
+    + `<div class="acc-f"><label for="acc-desde">Desde</label><select id="acc-desde" name="acc-desde">${op(ACCR.desde)}</select></div>`
+    + `<div class="acc-f"><label for="acc-hasta">Hasta</label><select id="acc-hasta" name="acc-hasta">${op(ACCR.hasta)}</select></div>`
+    + `<button type="button" class="chip" data-accdef>Últimos ${AP.maxMeses || 12} meses</button></fieldset>`
+    + `<p class="acc-aviso" role="status" aria-live="polite">${esc(ACCR.aviso)}</p>`;
+}
+function expAccPm() {
+  const al = accAlcance(), x = accPmCalc(al), ex = accExcl(al), sinEx = ex.length ? accPmCalc(al, false) : null, ms = accMeses();
+  const pk = precKam(al.clases && al.clases.length === 1 ? al.clases[0] : 'TODOS');
+  const fueraP = (AP.clasesFueraDelPortal || []).filter(c => !al.clases || al.clases.includes(c));
+  return { t: 'Precisión del forecast (ACC PM)', v: x.acc == null ? 'Sin datos' : pct1(x.acc), u: x.acc == null ? 'no hubo forecast ni compras en esos meses' : 'de acierto · ' + rango(ms),
+    que: accSelector() + `<p>Compara el forecast registrado para cada mes con lo que Brinova facturó al distribuidor (sell in), producto por producto, sumando los ${ms.length} meses elegidos en <b>${esc(accAlcanceTxt(al))}</b>. Es la misma asertividad del reporte Forecast y PRM.</p>`
+      + (ex.length ? `<p class="small muted">${esc(accExclTxt(ex))}</p>` : ''),
+    filas: [['Forecast registrado', fN(x.F) + ' u'], ['Compras del distribuidor (sell in)', fN(x.R) + ' u'], ['Desvío sumado producto por producto', fN(x.desv) + ' u'],
+      ['Precisión del forecast', pct1(x.acc), 1], ['Sesgo (forecast contra compras)', ok(x.sesgo) ? flecha(x.sesgo) + fP(x.sesgo) : '—']]
+      .concat(sinEx ? [['Contando ' + lista(ex.map(e => ml(e.mes))) + ' (como el reporte de Power BI)', pct1(sinEx.acc)]] : [])
+      .concat(x.top.length ? [['<b>Dónde está el mayor desvío</b>', '<b>forecast · compras</b>']].concat(x.top.map(t => [esc(accEntrada(t.ei)), fN(t.f) + ' · ' + fN(t.r) + ' u'])) : []),
+    fuentes: [FUENTE_BHIST, FUENTE_SI],
+    bi: `<div class="formula">ACC PM = 1 − Σ<sub>Cod. Entrada</sub> |Σ<sub>meses</sub> sell in − Σ<sub>meses</sub> forecast| ÷ Σ forecast (piso 0; vacío sin forecast ni sell in) · sesgo = Σ forecast ÷ Σ sell in − 1</div>`
+      + `<p>${esc(AP.regla || '')}</p><p>Unidad: ${esc(AP.unidad || '')}. Rango ${esc(ACCR.desde)}..${esc(ACCR.hasta)} (${ms.length} meses; disponibles ${esc(AP.meses[0])}..${esc(AP.meses[AP.meses.length - 1])}). Desvío ${fN(x.desv)} ÷ forecast ${fN(x.F)}.</p>`
+      + (ex.length ? '<p>Excluidos de los dos lados:</p><ul>' + ex.map(e => `<li><b>${esc(ml(e.mes))}</b> · ${esc(e.clases.join(', '))}: ${esc(e.motivo)}</li>`).join('') + '</ul>' : '')
+      + (fueraP.length ? `<p>Incluye clases del KAM que no están en la página (hoja X de MAESTROS): ${esc(fueraP.join(', '))}.</p>` : '')
+      + (pk ? `<p>Medida anterior de la página (12 meses fijos, en piezas): acierto trimestral contra el sell in ${ok(pk.accTrimSellIn) ? pct1(pk.accTrimSellIn) : '—'}, sesgo ${fP(pk.sesgoSellIn)}; precisión contra la demanda ${ok(pk.accReal) ? pct1(Math.max(0, pk.accReal)) : '—'}.</p>` : ''),
+    tec: 'datos.json → accPm.filas [clase, entrada, producto, categoría, forecast[24], sell in[24]] · accPm.excluir · Power BI: [FCST ACC PM] sobre \'Desviaciones PM\'',
+    nota: 'Para mejorar la precisión, revisa primero los productos con mayor desvío: un mes alto se compensa con otro bajo del mismo producto, pero un producto no compensa a otro.' };
+}
+/* tarjeta "Precisión del forecast" (pintarKpis) */
+function tarjetaAccPm() {
+  const al = accAlcance(), x = accPmCalc(al), ex = accExcl(al), ms = accMeses();
+  return tarjeta('Precisión del forecast · ' + esc(rango(ms)), nb('k_sesgo', x.acc == null ? 'Sin datos' : pct1(x.acc)),
+    ok(x.sesgo) ? `sesgo ${fP(x.sesgo)} contra compras` : '', ok(x.sesgo) && Math.abs(x.sesgo) > 0.15 ? 'warn' : 'muted',
+    [al.cat ? ['Categoría', esc(al.cat)] : null, ex.length ? ['Sin contar', esc(ex.map(e => ml(e.mes)).join(', '))] : ['Meses', ms.length + ' cerrados'], ['Periodo', nb('k_sesgo', 'Elegir meses', 'aria-label="Elegir los meses de la precisión del forecast"')]]);
+}
+/* precisión de una clase con el rango elegido (tabla de distribuidores) */
+const accPmClase = cl => AP ? accPmCalc({ clases: [cl], grupo: null, cat: '' }) : null;
+document.addEventListener('change', ev => {
+  const id = ev.target && ev.target.id;
+  if (AP && id === 'f-cat') { setTimeout(() => { if (S.vista === 'tendencia') pintarKpis(); }, 0); return; }      // la tarjeta sigue la categoría (S.cat lo pone app_3 › change)
+  if (!AP || (id !== 'acc-desde' && id !== 'acc-hasta')) return;
+  accSetRango($('#acc-desde').value, $('#acc-hasta').value, id === 'acc-desde' ? 'desde' : 'hasta');
+  accRefrescar(id);
+});
+document.addEventListener('click', ev => {
+  const t = ev.target.closest && ev.target.closest('[data-accdef]'); if (!t || !AP) return;
+  accSetRango(AP.defecto[0], AP.defecto[1], 'hasta'); accRefrescar('acc-hasta');
+});
+function accRefrescar(foco) {
+  if (S.vista === 'tendencia') pintarKpis();
+  if (S.vista === 'distribuidores') pintarDistribuidores();
+  const d = $('#dx'); if (d && d.open) { abrirExp(EXP.k_sesgo()); const el = $('#' + foco); if (el) el.focus(); }
+}
 const EXP = {
   k_kam() {
     const sel = selDist(), r = resumen(sel), top = sel.map(p => [p, kamValM(p, MK)]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -510,6 +642,7 @@ const EXP = {
       nota: `${r.invTrPz > 0 && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + '. ' : ''}${r.progPz > 0 ? PROG_KAM + BI(' Regla completa: ' + esc(reglaProgramados())) + ' ' : ''}${umbralFuente()}${uk.mixto ? ' (promedio ponderado por la venta diaria de cada distribuidor)' : ''}: menos de ${fN(uk.riesgo)} días${KAMN === 'MONICA' ? ' (exportación)' : ''} = riesgo de quiebre; más de ${fN(uk.sobrestock)} = sobrestock; más de ${fN(uk.exceso)} = exceso.` };
   },
   k_sesgo() {
+    if (AP) return expAccPm();      // 070-PRECISION: ACC PM con selector de meses; sin accPm (datos viejos), lo de antes
     const sel = selDist(), r = resumen(sel), pk = r.pk;
     if (pk) {      // 0.4.0: el KAM ve la medida principal (acierto trimestral contra el sell in) con su sesgo al lado; métricas, fórmulas, trimestres y regla quedan para BI
       const tab = fs => '<table class="dx-tab"><tbody>' + fs.map(x => `<tr><td>${x[0]}</td><td>${x[1]}</td></tr>`).join('') + '</tbody></table>';
@@ -662,14 +795,14 @@ function marcasHorizonte(ms, { L, bw, T, H, B, W, R }) {
   const ic = ms.indexOf(D.corte), iu = ms.indexOf(ULT_MF), y1 = 4, y2 = H - B;
   let g = '', finIzq = -1;
   if (ic >= 0) {
-    const xb = L + bw * (ic + 1), t = 'última venta real: ' + ml(D.corte), w = anchoTxt(t);
+    const xb = L + bw * (ic + 1), t = (W < 600 ? 'venta real: ' : 'última venta real: ') + ml(D.corte), w = anchoTxt(t);      // 0.7.0: texto corto en celular
     g += `<line x1="${xb.toFixed(1)}" x2="${xb.toFixed(1)}" y1="${y1}" y2="${y2}" stroke="#46535C" stroke-width="1.5"/>`;
     const ancla = xb - 5 - w >= L ? 'end' : 'start', tx = ancla === 'end' ? xb - 5 : xb + 5;
     g += `<text x="${tx.toFixed(1)}" y="13" text-anchor="${ancla}" class="mk">${esc(t)}</text>`;
     finIzq = ancla === 'end' ? xb : xb + 5 + w;
   }
   if (iu >= 0) {
-    const xe = Math.min(L + bw * (iu + 1), W - R), largo = 'último mes pronosticado: ' + ml(ULT_MF), corto = 'último pronóstico: ' + ml(ULT_MF);
+    const xe = Math.min(L + bw * (iu + 1), W - R), largo = (W < 600 ? 'pronóstico: ' : 'último mes pronosticado: ') + ml(ULT_MF), corto = (W < 600 ? 'fcst: ' : 'último pronóstico: ') + ml(ULT_MF);
     const t = xe - 5 - anchoTxt(largo) > finIzq + 8 ? largo : corto, fila = xe - 5 - anchoTxt(t) > finIzq + 8 ? 13 : 26;
     g += `<line x1="${xe.toFixed(1)}" x2="${xe.toFixed(1)}" y1="${y1}" y2="${y2}" stroke="#46535C" stroke-width="1.5" stroke-dasharray="4 3"/>`;
     g += `<text x="${(xe - 5).toFixed(1)}" y="${fila}" text-anchor="end" class="mk">${esc(t)}</text>`;
@@ -694,7 +827,7 @@ function dibujar(el) {
       if (e === 'curso' || e === 'abierto') {
         const x0 = L + bw * i, w = bw * (j - i + 1);
         g += `<rect x="${x0.toFixed(1)}" y="${T - 16}" width="${w.toFixed(1)}" height="${H - B - T + 16}" fill="${e === 'curso' ? `url(#${id}h)` : '#E8F5FC'}"/>`;
-        if (w >= 54) g += `<text x="${(x0 + 4).toFixed(1)}" y="${T - 5}" class="mk">${e === 'curso' ? 'en curso' : 'captura'}</text>`;
+        if (w >= 54 && W >= 600) g += `<text x="${(x0 + 4).toFixed(1)}" y="${T - 5}" class="mk">${e === 'curso' ? 'en curso' : 'captura'}</text>`;      // 0.7.0: en celular la leyenda ya nombra la banda; el rótulo se encimaba con las marcas
       }
       i = j + 1;
     }
@@ -771,7 +904,15 @@ function seriesDe(sel, p) {
   s.push({ nombre: 'Forecast registrado (ciclos anteriores)', tipo: 'ring', color: COL.kam, data: kp });
   s.push({ nombre: 'Algoritmo', tipo: 'dash', color: COL.alg, data: agg((pp, m) => conv(pp.alg[m], pp), MF) });
   s.push({ nombre: 'Forecast KAM vigente (con ajustes)', tipo: 'lm', color: COL.kam, data: agg((pp, m) => p ? kamPz(pp, m) / f : kamVal(pp, m), kamMs) });
+  s.forEach(x => { if (!x.key) x.key = SER_KEY[x.tipo] || x.nombre; });      // 070-GRAFICO: clave estable para prender/apagar la serie
   return s;
+}
+const SER_KEY = { col: 'si', line: 'real', ring: 'kp', dash: 'alg', lm: 'kam' };
+/* 070-GRAFICO · unidad para sumar productos (varios distribuidores): la presentación común si todos traen la misma; si cambian (caja de 24 y de 48), piezas. Nunca cajas de tamaños distintos. */
+function unidadGraf(ps) {
+  const us = [...new Set(ps.map(p => p.uPz || 1))], mixto = us.length > 1;
+  if (S.unidad !== 'pz' && !mixto && us[0] > 1) return { f: us[0], nom: uNom(ps[0]), mixto: false };
+  return { f: 1, nom: 'piezas', mixto };
 }
 const mesesGraf = () => MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= S.desde);
 function spark(p) {
@@ -838,13 +979,13 @@ function tarjeta(lbl, big, vr, vrCls, refs) {
     + `<span class="refs">${refs.filter(Boolean).map(([a, b, bi]) => bi ? BI(`<span>${a}</span><span>${b}</span>`) : `<span>${a}</span><span>${b}</span>`).join('')}</span></div>`;
 }
 function pintarKpis() {
-  const sel = P.filter(enDist), r = resumen(sel);
+  const sel = selGraf(), r = resumen(sel);      // 070-GRAFICO: las tarjetas siguen el filtro de producto del gráfico (S.prod); sin filtro = P.filter(enDist), como antes
   const tri = MH.slice(-3), t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null, ei = r.doh == null ? null : estInv(r.doh, S.dist === 'TODOS' ? null : S.dist);
   const tSel = tipoSel(), sinInv = !sel.some(p => p.inv);
   const porQue = tSel === 'sell in directo' ? 'Venta directa de Brinova' : tSel === 'sell out' ? 'Las cadenas no envían inventario' : 'Sin reporte de inventario';
   const fechas = [...new Set(sel.filter(p => p.inv).map(p => (D.distribuidores[p.clase] || {}).invFecha).filter(Boolean))];
   const viejas = [...new Set(sel.filter(p => p.inv).map(p => p.clase))].filter(invViejo);
-  const vl = S.dist !== 'TODOS' ? ventaLocalDe(S.dist) : null;      // venta en la moneda del distribuidor (cuando venga en datos.json)
+  const vl = S.dist !== 'TODOS' && !S.prod ? ventaLocalDe(S.dist) : null;      // venta en la moneda del distribuidor (cuando venga en datos.json; es del distribuidor completo, no de un producto)
   const cls = v => v == null ? 'muted' : v >= 0 ? 'up' : 'down';
   const k1 = tarjeta('Tu forecast · ' + esc(rango(MK)), nb('k_kam', fC(r.kam)), r.difK == null ? '' : `${flecha(r.difK)}${fP(r.difK)} contra el algoritmo`, r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted',
     [['Algoritmo', nb('k_alg', fC(r.alg))], ['En piezas', fN(r.pzk) + ' pz']]);
@@ -854,31 +995,148 @@ function pintarKpis() {
   if (sinInv) k3 = tarjeta('Inventario del distribuidor', 'No aplica', esc(porQue), 'muted', [['Fuente', esc(fuenteTxt(S.dist === 'TODOS' ? (D.clases[0] || '') : S.dist))]]);
   else {
     const corte = fechas.length ? fechas.map(f => f.slice(8, 10) + '/' + f.slice(5, 7)).join(', ') + (viejas.length ? ' (dato viejo)' : '') : '—';
-    const d2 = r.invTrPz > 0 ? ['En tránsito', fN(r.invTrPz) + ' pz'] : r.progPz > 0 ? ['Programado', fN(r.progCajas) + ' cajas'] : ['Valor', fC(r.inv)];
+    const d2 = r.invTrPz > 0 ? ['En tránsito', fN(r.invTrPz) + ' pz'] : r.progPz > 0 ? ['Programado', S.prod ? fN(r.progPz) + ' pz' : fN(r.progCajas) + ' cajas'] : ['Valor', fC(r.inv)];      // 070-GRAFICO: un producto en varios distribuidores puede mezclar cajas de 24 y de 48: en piezas
     k3 = tarjeta('Inventario del distribuidor', r.doh == null ? '—' : nb('k_doh', diasTxt(r.doh) + ''), ei ? esc(ei[1]) : '', ei ? (ei[0] === 'good' ? 'up' : ei[0] === 'bad' ? 'down' : ei[0] ? 'warn' : 'muted') : 'muted',
       [d2, ['Corte', corte]]);
   }
   let k4;
-  if (r.pk) {
+  if (AP) k4 = tarjetaAccPm();      // 070-PRECISION: precisión del forecast (ACC PM del reporte) con el rango de meses que elige el KAM
+  else if (r.pk) {
     const v = pkMed(r.pk), e = aciertoEst(v, r.pk.sellInPz), sg = pkSes(r.pk), ex = exclusiones(r.pk).flatMap(x => x.meses);
     k4 = tarjeta('Forecast anterior · ' + esc(rango(r.L12)), nb('k_sesgo', e === 'ok' ? pctN(v) + ' acierto' : e === 'piso' ? 'Sin acierto' : 'Sin base'),
       ok(sg) ? `sesgo ${fP(sg)} contra ${BASE_SI ? 'compras' : 'venta'}` : '', ok(sg) && Math.abs(sg) > 0.15 ? 'warn' : 'muted',
       [ex.length ? ['Sin contar', esc([...new Set(ex)].map(ml).join(', '))] : ['Periodo', esc(rango(r.L12))], ['Precisión (FCST ACC)', r.prec == null ? '—' : nf.format(r.prec * 100) + ' %', true]]);
   } else k4 = tarjeta('Forecast anterior · ' + esc(rango(r.L12)), r.sesgo == null ? 'Sin historia' : nb('k_sesgo', fP(r.sesgo)), r.sesgo == null ? 'sin forecast en 12 meses' : 'sesgo contra la venta', 'muted', [['Periodo', esc(rango(r.L12))]]);
   $('#kpis').innerHTML = k1 + k2 + k3 + k4;
-  const nAl = sel.filter(p => alertas(p).length).length;
-  $('#nota-mix').textContent = `${sel.length} productos · ${nAl} con alerta${r.sinPrecio ? ' · ' + r.sinPrecio + ' sin precio de lista' : ''}`;
+  const selL = P.filter(enDist), nAl = selL.filter(p => alertas(p).length).length, nSP = selL.filter(p => p.precioPz == null).length;      // 070-GRAFICO: la nota de la lista sigue siendo del distribuidor
+  $('#nota-mix').textContent = `${selL.length} productos · ${nAl} con alerta${nSP ? ' · ' + nSP + ' sin precio de lista' : ''}`;
+  pintarKpiFiltro();
 }
 
 /* ---------- tendencia total ---------- */
+/* 070-GRAFICO: sin filtro, el mix del distribuidor en colones; con producto (S.prod), ese producto sumado en sus distribuidores (o uno) en su unidad común o en piezas.
+   Las series se prenden y apagan desde la leyenda (S.ocultas) y el eje se reajusta a lo visible. */
 function pintarTotal() {
-  const sel = P.filter(enDist);
-  const o = { meses: mesesGraf(), series: seriesDe(sel), estados: true, incompletos: S.dist === 'TODOS' ? [] : incompletosDe([S.dist]), exclKam: exclKamDe(S.dist === 'TODOS' ? D.clases : [S.dist]), eje: v => v === 0 ? '₡0' : '₡' + fCx(v), tip: fC, titulo: 'Tendencia del mix en colones' };
+  validarProd();
+  const sel = selGraf(), u = S.prod ? unidadGraf(sel) : null, a = prodAlcance();
+  const todas = u ? seriesDe(sel, { uPz: u.f }) : seriesDe(sel);
+  const cls = S.prod ? [...new Set(sel.map(p => p.clase))] : (S.dist === 'TODOS' ? D.clases : [S.dist]);
+  const o = { meses: mesesGraf(), series: todas.filter(s => !S.ocultas.includes(s.key)), estados: true, incompletos: cls.length === 1 ? incompletosDe(cls) : [], exclKam: exclKamDe(cls),
+    eje: u ? fCx : (v => v === 0 ? '₡0' : '₡' + fCx(v)), tip: u ? (v => fN1(v) + ' ' + u.nom) : fC,
+    titulo: u ? 'Tendencia de ' + nombreProd(S.prod) + ' (' + alcanceTxt(sel) + ') en ' + u.nom : 'Tendencia del mix en colones', izq: u ? 52 : 0 };
   grafico($('#ch-total'), o);
-  $('#lg-total').innerHTML = leyenda(o.series, true) + (o.incompletos.length ? '<span><i class="sw" style="border:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #D99A22"></i>mes incompleto</span>' : '');
+  $('#lg-total').innerHTML = leyendaSeries(todas) + leyenda([], true) + (o.incompletos.length ? '<span><i class="sw" style="border:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #D99A22"></i>mes incompleto</span>' : '');
+  $('#tt-t').textContent = S.prod ? nombreProd(S.prod) : 'Tendencia del mix';
+  $('#nota-total').textContent = u ? alcanceTxt(sel) + ' · ' + u.nom + (u.mixto ? ' (presentaciones distintas: se suma en piezas)' : '') : 'Colones a precio de lista';
+  pintarFiltroProd(); pintarKpiFiltro(); marcarSelLista();
   const b = $('#b-desde'); if (b) b.setAttribute('aria-pressed', S.desde === '2024-01');
   const tb = document.querySelector('[data-tabla="ch-total"]'); if (tb && tb.getAttribute('aria-pressed') === 'true') $('#ch-total-tb').innerHTML = tablaSeries(o);
 }
+const nombreProd = g => (P.find(p => p.grupo === g) || {}).nombre || g;
+function alcanceTxt(sel) { const a = prodAlcance(); if (a !== 'TODOS') return a; const n = new Set(sel.map(p => p.clase)).size; return n === 1 && sel.length ? sel[0].clase : 'suma de ' + n + ' distribuidores'; }
+function validarProd() {      // el producto elegido tiene que existir en el distribuidor de arriba; si no, vuelve al mix
+  if (!S.prod) return;
+  const ps = P.filter(p => p.grupo === S.prod && enDist(p));
+  if (!ps.length) { S.prod = null; S.prodDist = 'TODOS'; return; }
+  if (S.prodDist !== 'TODOS' && !ps.some(p => p.clase === S.prodDist)) S.prodDist = 'TODOS';
+}
+function seleccionarProd(g, cl, avisar) {
+  S.prod = g || null; S.prodDist = (g && cl) || 'TODOS';
+  pintarKpis(); pintarTotal();
+  if (avisar && g) toast('Gráfico y tarjetas: ' + nombreProd(g) + ' · ' + alcanceTxt(selGraf()));
+}
+/* leyenda que funciona como slicer: cada serie es un botón con casilla; apagada = no se dibuja y no cuenta para el eje */
+function leyendaSeries(series) {
+  return `<span class="ser-l" role="group" aria-label="Series del gráfico: toca una para mostrarla u ocultarla">${series.map(s => {
+    const on = !S.ocultas.includes(s.key), k = s.tipo === 'dash' ? 'dash' : s.tipo === 'col' ? 'col' : s.tipo === 'ring' ? 'dot' : s.tipo === 'lm' ? 'lm' : '';
+    return `<button type="button" class="ser" data-serie="${esc(s.key)}" aria-pressed="${on}" title="${on ? 'Ocultar' : 'Mostrar'} ${esc(s.nombre)}"><span class="ck" aria-hidden="true"></span><i class="sw ${k}" style="${s.tipo === 'col' ? 'background' : s.tipo === 'ring' ? 'border-color' : 'border-top-color'}:${s.color};color:${s.color}"></i>${esc(s.nombre)}</button>`;
+  }).join('')}</span>`;
+}
+/* selector de producto junto al gráfico: nombre Brinova; con "Todos" arriba, también el distribuidor (todos sumados o uno) */
+function pintarFiltroProd() {
+  const el = $('#gf-bar'); if (!el) return;
+  const foco = document.activeElement && document.activeElement.closest && document.activeElement.closest('#gf-bar') ? document.activeElement.id : null;
+  const m = new Map(); P.filter(enDist).forEach(p => { const x = m.get(p.grupo) || { g: p.grupo, n: p.nombre, k: 0 }; x.k++; m.set(p.grupo, x); });
+  const ops = [...m.values()].sort((a, b) => a.n.localeCompare(b.n, 'es'));
+  const enProd = S.prod ? new Set(P.filter(p => p.grupo === S.prod).map(p => p.clase)) : null, cls = S.prod && S.dist === 'TODOS' ? D.clases.filter(c => enProd.has(c)) : [];
+  el.innerHTML = `<label class="gf-f"><span>Producto</span><select id="gf-prod"><option value="">Todo el mix${S.dist === 'TODOS' ? '' : ' de ' + esc(S.dist)}</option>${ops.map(x => `<option value="${esc(x.g)}"${x.g === S.prod ? ' selected' : ''}>${esc(x.n)}${S.dist === 'TODOS' && x.k > 1 ? ' · ' + x.k + ' distribuidores' : ''}</option>`).join('')}</select></label>`
+    + (cls.length > 1 ? `<label class="gf-f"><span>Distribuidor</span><select id="gf-dist"><option value="TODOS">Todos sumados (${cls.length})</option>${cls.map(c => `<option value="${esc(c)}"${c === prodAlcance() ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : '')
+    + (S.prod ? `<button type="button" class="chip" data-gfclr>Quitar filtro</button>` : '');
+  if (foco) { const f = document.getElementById(foco); if (f) f.focus(); }
+}
+function pintarKpiFiltro() {
+  const el = $('#kpi-filtro'); if (!el) return;
+  if (!S.prod) { el.hidden = true; el.innerHTML = ''; return; }
+  const sel = selGraf(), u = unidadGraf(sel);
+  el.hidden = false;
+  el.innerHTML = `<span>Tarjetas y gráfico filtrados: <b>${esc(nombreProd(S.prod))}</b> · ${esc(alcanceTxt(sel))}${u.mixto ? ' · presentaciones distintas, sumadas en piezas y colones' : ''}</span><button type="button" class="chip" data-gfclr>Ver todo el mix</button>`;
+}
+function marcarSelLista() {      // resalta en la lista agrupada el producto (y el distribuidor) que muestra el gráfico
+  const a = prodAlcance();
+  $$('#lista details.gp').forEach(d => { const on = d.dataset.grupo === S.prod; d.classList.toggle('sel', on);
+    d.querySelectorAll('.gp-d').forEach(r => { const s = on && a !== 'TODOS' && r.dataset.gpcl === a; r.classList.toggle('sel', s); const b = r.querySelector('.gp-sel'); if (b) b.setAttribute('aria-pressed', s); }); });
+}
+/* gráfico compacto de la pestaña Capturar: el producto que se está capturando; los puntos de "Forecast KAM vigente" se mueven con cada número (evento fcst:captura) */
+function pintarCapGraf() {
+  const box = $('#cap-graf'); if (!box) return;
+  if (S.vista !== 'capturar' || !prodGrid.length) { box.hidden = true; return; }
+  if (!S.capProd || !PID[S.capProd] || !enDist(PID[S.capProd])) S.capProd = prodGrid[0].id;
+  const p = PID[S.capProd]; box.hidden = false;
+  $('#cg-t').textContent = p.nombre + ' · ' + p.clase;
+  $('#cg-nota').textContent = uNom(p) + ' · el punto naranja se mueve mientras escribes';
+  const b = $('#b-cg'); b.setAttribute('aria-expanded', String(!S.cgOculto)); b.textContent = S.cgOculto ? 'Mostrar gráfico' : 'Ocultar gráfico';
+  box.classList.toggle('plegado', !!S.cgOculto);
+  if (S.cgOculto) return;
+  const todas = seriesDe([p], p), desde = addM(MC, -12);
+  const o = { meses: MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= desde), series: todas.filter(s => !S.ocultas.includes(s.key)), estados: true, incompletos: INCOMP[p.clase] || [], exclKam: exclKamDe([p.clase]),
+    eje: fCx, tip: v => fN1(v) + ' ' + uNom(p), titulo: 'Mes a mes de ' + p.nombre + ' en ' + p.clase + ', en ' + uNom(p), izq: 48, h: 210 };
+  grafico($('#ch-cap'), o);
+  $('#lg-cap').innerHTML = leyendaSeries(todas);
+}
+/* eventos del gráfico (se registran antes que los de app_3; usan atributos propios: data-serie, data-gfclr, data-gsel, data-agrupar, #gf-prod, #gf-dist, #b-cg) */
+document.addEventListener('click', ev => {
+  const t = ev.target;
+  const ser = t.closest('[data-serie]');
+  if (ser) {
+    const k = ser.dataset.serie, on = ser.getAttribute('aria-pressed') === 'true', grupo = ser.parentElement, ley = ser.closest('.legend');
+    if (on && grupo && grupo.querySelectorAll('[data-serie][aria-pressed="true"]').length <= 1) { toast('Deja al menos una serie visible'); return; }
+    S.ocultas = on ? S.ocultas.concat(k) : S.ocultas.filter(x => x !== k); guardarGraf();
+    if (S.vista === 'tendencia') pintarTotal();
+    if (S.vista === 'capturar') pintarCapGraf();
+    const otro = ley && ley.querySelector(`[data-serie="${CSS.escape(k)}"]`); if (otro) otro.focus();      // la leyenda se repinta: el foco vuelve al mismo botón
+    return;
+  }
+  if (t.closest('[data-gfclr]')) { seleccionarProd(null); return; }
+  if (t.closest('#b-cg')) { S.cgOculto = !S.cgOculto; guardarGraf(); pintarCapGraf(); return; }
+  if (t.closest('[data-agrupar]')) { S.agrupar = !S.agrupar; guardarGraf(); pintarLista(); return; }
+  const d = t.closest('[data-d]'); if (d) { S.prodDist = 'TODOS'; return; }      // cambio de distribuidor arriba: el alcance del producto vuelve a "todos"
+  const sm = t.closest('summary.gp-h');
+  if (sm) { const det = sm.parentElement, g = det.dataset.grupo, abre = !det.open; S.gpAbierto[g] = abre; if (abre) seleccionarProd(g, 'TODOS', true); return; }
+  const fila = t.closest('.gp-d');
+  if (fila && !t.closest('[data-p]')) { const g = fila.closest('details.gp').dataset.grupo; seleccionarProd(g, fila.dataset.gpcl, true); }
+});
+document.addEventListener('change', ev => {
+  if (ev.target.id === 'gf-prod') seleccionarProd(ev.target.value || null, 'TODOS');
+  if (ev.target.id === 'gf-dist') seleccionarProd(S.prod, ev.target.value);
+});
+document.addEventListener('focusin', ev => {
+  const el = ev.target;
+  if (el.classList && el.classList.contains('inp') && el.closest('#v-capturar')) { const L = LINES[el.dataset.line]; if (L && S.capProd !== L.p.id) { S.capProd = L.p.id; pintarCapGraf(); } }
+});
+let rafCap = 0;
+document.addEventListener('fcst:captura', ev => {      // contrato común: {clase, cod, mes}
+  const x = ev.detail || {}, L = LINES[x.clase + '__' + x.cod]; if (!L) return;
+  cancelAnimationFrame(rafCap);
+  rafCap = requestAnimationFrame(() => {
+    if (S.vista === 'capturar') { S.capProd = L.p.id; pintarCapGraf(); }
+    if (S.vista === 'tendencia' && (!S.prod || S.prod === L.p.grupo)) pintarTotal();
+  });
+});
+(() => {      // alto de la barra superior (fija solo en escritorio) para pegar debajo el gráfico compacto de Capturar
+  const h = document.querySelector('header.top'), cg = document.getElementById('cap-graf'), raiz = document.documentElement.style; if (!h || typeof ResizeObserver === 'undefined') return;
+  new ResizeObserver(() => raiz.setProperty('--top-h', (getComputedStyle(h).position === 'sticky' ? h.offsetHeight : 0) + 'px')).observe(h);
+  if (cg) new ResizeObserver(() => raiz.setProperty('--cg-h', cg.offsetHeight + 'px')).observe(cg);      // la tabla de captura se acorta para caber debajo del gráfico fijo
+})();
 
 /* ---------- tus distribuidores: fuente de la demanda ---------- */
 function pintarDistribuidores() {
@@ -890,10 +1148,10 @@ function pintarDistribuidores() {
     return `<tr><td class="l" data-l="Distribuidor"><button type="button" class="chip" data-d="${esc(cl)}" aria-pressed="${S.dist === cl}">${esc(cl)}</button></td>
       <td class="l" data-l="Fuente de la demanda" style="white-space:normal">${pill('src', fuenteTxt(cl))}${pillsMeses(cl)}${ult && ult < D.corte ? ' ' + pill('warn', 'venta hasta ' + ml(ult)) : ''}</td>
       <td data-l="Productos">${s2.length}</td>${conLocal ? `<td data-l="Venta 3 meses (moneda local)">${vlc ? `<span title="${esc(vlc.queEs || '')}">${esc(fMon(vlc.total3, vlc.moneda))}</span>` + (var3Local(vlc) ? `<small class="${/^sin/.test(var3Local(vlc)) ? 'muted' : vlc.var3 >= 0 ? 'up' : 'down'}" style="display:block">${var3Local(vlc)}</small>` : '') + (vlc.sellIn && ok(vlc.sellIn.razonPrecio12) ? BI(`<small class="muted" style="display:block">precio local ÷ facturado: ${nf2.format(vlc.sellIn.razonPrecio12)}×</small>`) : '') : '—'}</td>` : ''}<td data-l="Días de inventario">${r2.doh == null ? '—' : diasTxt(r2.doh) + '' + (r2.invTrPz > 0 ? `<small class="muted" style="display:block">${fN(r2.invDistPz)} pz en el distribuidor + ${fN(r2.invTrPz)} pz en tránsito</small>` : '') + (r2.progPz > 0 ? `<small class="muted" style="display:block" title="Pedidos programados: todavía no salieron; no suman días">+${fN(r2.progCajas)} cajas prog.</small>` : '') + (e ? `<small class="${e[0] ? '' : invViejo(cl) ? 'warn' : 'muted'}" style="display:block">${esc(e[1].toLowerCase())}</small>` : '')}${d.invFecha && !invViejo(cl) ? `<small class="muted" style="display:block">corte ${fechaCorta(d.invFecha)}</small>` : ''}</td><td data-l="Tu forecast vs algoritmo" class="${r2.difK != null && Math.abs(r2.difK) > 0.3 ? 'warn' : ''}">${flecha(r2.difK)}${fP(r2.difK)}</td>
-      <td data-l="Sesgo del forecast anterior" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`;
+      ${AP ? (() => { const a = accPmClase(cl); return `<td data-l="Precisión del forecast · ${esc(rango(accMeses()))}">${a && a.acc != null ? pct1(a.acc) : '—'}${a && ok(a.sesgo) ? `<small class="${Math.abs(a.sesgo) > 0.15 ? 'warn' : 'muted'}" style="display:block">sesgo ${fP(a.sesgo)} contra compras</small>` : ''}</td></tr>`; })() : `<td data-l="Sesgo del forecast anterior" class="${sg != null && Math.abs(sg) > 0.15 ? 'warn' : ''}">${sg == null ? '—' : flecha(sg) + fP(sg)}${pk ? `<small class="muted" style="display:block">${aciertoEst(pkMed(pk), pk.sellInPz) === 'ok' ? 'acierto trim. ' : ''}${aciertoTxt(pkMed(pk), pk.sellInPz, true)}</small>` : ''}${pk ? BI(`<small class="muted" style="display:block">vs venta ${fP(pk.sesgoReal)} · precisión ${ok(pk.accReal) ? nf.format(pk.accReal * 100) + ' %' : '—'}</small>`) : ''}</td></tr>`}`;
   }).join('');
   /* 0.4.0: encabezados en dos líneas y celdas que se parten, para que la tabla quepa a 1366-1400 px sin cortar la última columna */
-  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%">${conLocal ? '<col style="width:12%">' : ''}<col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l" title="Sell through: venta del distribuidor a sus clientes · Sell out: venta de las tiendas al consumidor · Sell in directo: lo que Brinova factura">Fuente de la demanda</th><th>Productos</th>${conLocal ? '<th title="Venta real de los últimos 3 meses en la moneda del distribuidor">Venta 3 meses (moneda local)</th>' : ''}<th>Días de inventario</th><th>Tu forecast vs algoritmo</th><th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th></tr></thead><tbody>${filas}</tbody></table></div>${BI('<p class="small muted" style="margin-top:8px">El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>')}`;
+  $('#tab-dist').innerHTML = `<div class="tw" role="region" tabindex="0" aria-label="Tus distribuidores"><table class="tbl tdist"><colgroup><col style="width:15%"><col><col style="width:8%">${conLocal ? '<col style="width:12%">' : ''}<col style="width:13%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr><th class="l">Distribuidor</th><th class="l" title="Sell through: venta del distribuidor a sus clientes · Sell out: venta de las tiendas al consumidor · Sell in directo: lo que Brinova factura">Fuente de la demanda</th><th>Productos</th>${conLocal ? '<th title="Venta real de los últimos 3 meses en la moneda del distribuidor">Venta 3 meses (moneda local)</th>' : ''}<th>Días de inventario</th><th>Tu forecast vs algoritmo</th>${AP ? `<th title="Asertividad del reporte Forecast y PRM (ACC PM), de ${esc(rango(accMeses()))}; se cambia en la tarjeta Precisión del forecast">Precisión del forecast<br><span class="small muted">${esc(rango(accMeses()))}</span></th>` : '<th title="Sesgo: positivo = forecast por encima de las compras del distribuidor">Sesgo del forecast anterior</th>'}</tr></thead><tbody>${filas}</tbody></table></div>${BI('<p class="small muted" style="margin-top:8px">El algoritmo usa la fuente de cada distribuidor; el sell in (facturado) sirve para comprobar que los datos cuadran.</p>')}`;
 }
 
 /* ---------- lista (de 60 en 60) ---------- */
@@ -905,8 +1163,10 @@ function pintarLista() {
     dif: (a, b) => Math.abs(dif(b) ?? 0) - Math.abs(dif(a) ?? 0),
   }[S.orden];
   const L = filtrados().sort(ord);
+  const agr = S.agrupar && S.dist === 'TODOS';      // 070-GRAFICO: "Agrupar por producto" (con un solo distribuidor cada producto ya es una fila)
+  { const bA = $('#b-agrupar'); if (bA) { bA.hidden = S.dist !== 'TODOS'; bA.setAttribute('aria-pressed', String(agr)); } }
   const head = `${BI('<p class="small muted" style="margin:0 0 8px">' + esc(catFuenteTxt()) + '</p>')}
-    <div class="lhead"><span>Producto</span><span>12 meses + algoritmo</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">Precio lista</span></div>`;
+    <div class="lhead"><span>${agr ? 'Producto · suma de distribuidores (toca para verlo en el gráfico)' : 'Producto'}</span><span>12 meses + algoritmo</span><span class="r">Venta 3M</span><span class="r">Inventario</span><span class="r">Algoritmo ${esc(rango(MK))}</span><span class="r">Tu forecast</span><span class="r">${agr ? 'Precio lista por pieza' : 'Precio lista'}</span></div>`;
   if (!L.length) { $('#lista').innerHTML = head + '<div class="vacio">Ningún producto cumple el filtro. Prueba con “Todos”.</div>'; return; }
   /* 0.4.0: agrupada por categoría (p.cat), plegable, con totales en colones; las categorías con más algoritmo arriba.
      Abiertas si hay búsqueda o filtro; si no, cerradas. Lo que el KAM abre o cierra se recuerda hasta que cambie el filtro. */
@@ -918,16 +1178,17 @@ function pintarLista() {
   const gs = [...grupos.entries()].map(([k, ps]) => [k, ps, totCat(ps)]).sort((a, b) => pos(a[0]) - pos(b[0]) || b[2].alg - a[2].alg || a[0].localeCompare(b[0]));
   $('#lista').innerHTML = head + gs.map(([k, ps, r]) => {
     const abierta = S.catAbierta[k] != null ? S.catAbierta[k] : (filtro || gs.length === 1), lim = S.limCat[k] || 40, nAl = ps.filter(p => alertas(p).length).length;
+    const its = agr ? gruposProd(ps) : ps, nIt = its.length;      // 070-GRAFICO: filas agrupadas por producto
     return `<details class="cat" data-cat="${esc(k)}"${abierta ? ' open' : ''}><summary class="cat-h"${descCat(k) ? ` title="${esc(descCat(k))}"` : ''}>
-      <span class="c-nm"><span class="nm">${esc(nombreCat(k))}</span>${descCat(k) ? `<span class="desc">${esc(descCat(k))}</span>` : ''}<span class="meta">${ps.length} ${ps.length === 1 ? 'producto' : 'productos'}${BI(' · ' + esc(cuentaFuentes(ps)))}${nAl ? ' · ' + nAl + ' con alerta' : ''}</span></span>
+      <span class="c-nm"><span class="nm">${esc(nombreCat(k))}</span>${descCat(k) ? `<span class="desc">${esc(descCat(k))}</span>` : ''}<span class="meta">${agr ? nIt + (nIt === 1 ? ' producto' : ' productos') + ' en ' + ps.length + (ps.length === 1 ? ' fila' : ' filas') + ' por distribuidor' : ps.length + ' ' + (ps.length === 1 ? 'producto' : 'productos')}${BI(' · ' + esc(cuentaFuentes(ps)))}${nAl ? ' · ' + nAl + ' con alerta' : ''}</span></span>
       <span class="small muted" data-l="">en colones</span>
       <span class="r v" data-l="Venta 3M">${fC(r.d3)}<small class="${r.t == null ? '' : r.t >= 0 ? 'up' : 'down'}">${flecha(r.t)}${fP(r.t)}</small></span>
       <span class="r v" data-l="Inventario">${r.inv ? fC(r.inv) : '—'}</span>
       <span class="r v" data-l="Algoritmo">${fC(r.alg)}</span>
       <span class="r v" data-l="Tu forecast">${fC(r.kam)}<small class="${r.dif != null && Math.abs(r.dif) > 0.3 ? 'warn' : ''}">${flecha(r.dif)}${fP(r.dif)}</small></span>
       <span></span></summary>
-      ${ps.slice(0, lim).map(itemLista).join('')}
-      ${ps.length > lim ? `<div class="mas"><button type="button" class="btn" data-mascat="${esc(k)}">Mostrar ${Math.min(60, ps.length - lim)} más (${ps.length - lim} restantes)</button></div>` : ''}</details>`;
+      ${its.slice(0, lim).map(agr ? itemGrupo : itemLista).join('')}
+      ${nIt > lim ? `<div class="mas"><button type="button" class="btn" data-mascat="${esc(k)}">Mostrar ${Math.min(60, nIt - lim)} más (${nIt - lim} restantes)</button></div>` : ''}</details>`;
   }).join('');
 }
 /* 0.4.0 · categorías (24/11): productos[].cat sale de T_SKU › CATEGORÍA PORTAL (o BFCST); productos[].catFuente dice de dónde.
@@ -961,6 +1222,54 @@ function itemLista(p) {
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l="Precio lista">${pr != null ? fC2(pr) : pill('bad', 'sin precio')}<small>por ${esc(esEmpaque(p) || p.uPz > 1 ? String(presDe(p.princ) || 'unidad').toLowerCase() : 'pieza')}</small></span>
     </button>`;
+}
+/* ---------- 070-GRAFICO · lista agrupada por producto (productos[].grupo) ----------
+   Suma piezas de todos los distribuidores; se muestra en la presentación común si todos traen la misma (unidadGraf) y si no en piezas.
+   Colones a precio de lista de cada distribuidor. Al abrir el grupo el gráfico de arriba muestra ese producto sumado; al tocar un distribuidor, solo ese. */
+function aggGrupo(ps) {
+  const a = { ps, u: unidadGraf(ps), d3: 0, d3ly: 0, inv: 0, conInv: 0, vd: 0, tr: false, alg: 0, kam: 0, algC: 0, kamC: 0, real: {}, algM: {}, prMin: null, prMax: null, alerta: 0 };
+  ps.forEach(p => {
+    a.d3 += p.d3 || 0; a.d3ly += p.d3ly || 0; a.alg += algPz6(p); a.kam += kamPz6(p); a.algC += pv(p, algPz6(p)); a.kamC += kamValM(p, MK);
+    if (p.inv) { a.inv += invTot(p); a.conInv++; const v = ventaDoh(p); if (v > 0) a.vd += v / diasDoh(p); if (conTransito(p)) a.tr = true; }
+    MH.forEach(m => { a.real[m] = (a.real[m] || 0) + (p.real[m] || 0); }); MF.forEach(m => { a.algM[m] = (a.algM[m] || 0) + (p.alg[m] || 0); });
+    if (p.precioPz != null) { a.prMin = a.prMin == null ? p.precioPz : Math.min(a.prMin, p.precioPz); a.prMax = a.prMax == null ? p.precioPz : Math.max(a.prMax, p.precioPz); }
+    if (alertas(p).length) a.alerta++;
+  });
+  a.t = a.d3ly > 0 ? a.d3 / a.d3ly - 1 : null; a.dif = a.alg > 0 ? a.kam / a.alg - 1 : null; a.dias = a.vd > 0 ? Math.round(a.inv / a.vd) : null;
+  return a;
+}
+function gruposProd(ps) {
+  const m = new Map(); ps.forEach(p => { if (!m.has(p.grupo)) m.set(p.grupo, []); m.get(p.grupo).push(p); });
+  const ord = { valor: (a, b) => b.algC - a.algC, tend: (a, b) => (a.t ?? 9) - (b.t ?? 9), dias: (a, b) => (b.dias ?? -1) - (a.dias ?? -1), dif: (a, b) => Math.abs(b.dif ?? 0) - Math.abs(a.dif ?? 0) }[S.orden] || ((a, b) => b.algC - a.algC);
+  return [...m.values()].map(x => aggGrupo(x.sort((a, b) => D.clases.indexOf(a.clase) - D.clases.indexOf(b.clase)))).sort(ord);
+}
+function itemGrupo(a) {
+  const p0 = a.ps[0], f = a.u.f, n = a.ps.length, cls = a.ps.map(p => p.clase), e = a.dias == null ? null : estInv(a.dias, cls.length === 1 ? cls[0] : null);
+  const precio = a.prMin == null ? pill('bad', 'sin precio') : a.prMin === a.prMax ? fC2(a.prMin) : fC(a.prMin) === fC(a.prMax) ? fC(a.prMin) : fC(a.prMin) + ' – ' + fC(a.prMax);
+  return `<details class="gp${S.prod === p0.grupo ? ' sel' : ''}" data-grupo="${esc(p0.grupo)}"${S.gpAbierto[p0.grupo] ? ' open' : ''}><summary class="item gp-h" title="Ver ${esc(p0.nombre)} en el gráfico, sumado para sus distribuidores">
+      <span class="c-nm" style="min-width:0"><span class="nm">${esc(p0.nombre)}</span>
+        <span class="meta"><span class="upill ${f > 1 ? 'emp' : 'pz'}">${esc(a.u.nom)}</span> ${n} ${n === 1 ? 'distribuidor' : 'distribuidores'}${a.u.mixto ? ' · presentaciones distintas: suma en piezas' : ''}${a.alerta ? ' · ' + a.alerta + ' con alerta' : ''}</span></span>
+      <span data-l="12 meses + algoritmo">${spark({ real: a.real, alg: a.algM })}</span>
+      <span class="r v" data-l="Venta 3M">${fN1(a.d3 / f)}<small class="${a.t == null ? '' : a.t >= 0 ? 'up' : 'down'}">${flecha(a.t)}${fP(a.t)}</small></span>
+      <span class="r v" data-l="Inventario">${a.conInv ? fN1(a.inv / f) + (a.tr ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${a.dias != null ? pill(e ? e[0] : '', diasTxt(a.dias)) : 'sin venta'}</small>` + (a.conInv < n ? `<small class="muted">${a.conInv} de ${n} con reporte</small>` : '') : '<small>sin reporte</small>'}</span>
+      <span class="r v" data-l="Algoritmo">${fN1(a.alg / f)}<small>${fC(a.algC)}</small></span>
+      <span class="r v" data-l="Tu forecast">${fN1(a.kam / f)}<small class="${a.dif != null && Math.abs(a.dif) > 0.3 ? 'warn' : ''}">${flecha(a.dif)}${fP(a.dif)}</small></span>
+      <span class="r v" data-l="Precio lista por pieza">${precio}<small>por pieza</small></span>
+    </summary>${a.ps.map(p => itemDesglose(p, a.u)).join('')}</details>`;
+}
+function itemDesglose(p, u) {
+  const f = u.f, t = tend(p), d = dif(p), e = estInv(dias(p), p.clase), on = S.prod === p.grupo && prodAlcance() === p.clase;
+  const pres = p.uPz > 1 ? plural(presDe(p.princ)) + ' de ' + fN(p.uPz) + ' pz' : 'piezas sueltas';
+  return `<div class="item gp-d${on ? ' sel' : ''}" data-gpcl="${esc(p.clase)}">
+      <span class="c-nm" style="min-width:0"><button type="button" class="gp-sel" data-gsel="${esc(p.grupo)}" aria-pressed="${on}" title="Ver solo ${esc(p.clase)} en el gráfico"><span class="nm">${esc(p.clase)}</span></button>
+        <span class="meta">${esc(p.principal)} · se vende en ${esc(pres)}</span></span>
+      <span data-l="12 meses + algoritmo">${spark(p)}</span>
+      <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
+      <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + `<small>${e ? pill(e[0], diasTxt(dias(p))) : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
+      <span class="r v" data-l="Algoritmo">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
+      <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
+      <span class="r v" data-l=""><button type="button" class="btn gp-det" data-p="${esc(p.id)}">Ver detalle</button></span>
+    </div>`;
 }
 
 /* ---------- captura (formato formulario, de 25 en 25 productos) ---------- */
@@ -1036,6 +1345,7 @@ function pintarResumenCap() {
     <p class="small muted solo-movil">En el celular conviene capturar desde el detalle: toca el nombre del producto.</p>
     ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
   $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Algoritmo: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el algoritmo</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>`;
+  pintarCapGraf();      // 070-GRAFICO: gráfico compacto del producto que se captura (pintarGrid y refrescarResumen pasan por aquí)
 }
 function inspector(id, m) {
   const el = $('#insp'); if (!el || !LINES[id]) return;
@@ -1437,8 +1747,12 @@ function escena3D(T, el, plan, cont) {
 function abrir(id) {
   const p = PID[id]; if (!p) return;
   S.abierto = id;
-  const d = $('#det'); if (!d.open) d.showModal();
+  /* 070-DETALLE: se pinta antes de showModal() para que el autofocus caiga en el botón Cerrar del producto nuevo;
+     si ya estaba abierto (otro distribuidor del mismo producto), el foco vuelve a Cerrar porque el botón tocado desaparece */
+  const d = $('#det'), yaAbierto = d.open;
+  if (!yaAbierto) abrir.desde = document.activeElement;
   pintarDetalle(p);
+  if (!yaAbierto) d.showModal(); else { const c = d.querySelector('.cerrar'); if (c) c.focus(); }
   const sc = $('#det .det-in'); if (sc) sc.scrollTop = 0;
 }
 function cerrar() { const d = $('#det'); if (d.open) d.close(); }
@@ -1489,7 +1803,7 @@ function htmlOrigen(p) {
   const og = p.origenPz && Object.keys(p.origenPz).length ? p.origenPz : null, ogT = og ? Object.values(og).reduce((a, b) => a + b, 0) : 0;
   return `<div class="panel-h"><h2 id="or-t">Origen de la demanda</h2></div>
     <p class="origen-linea"><span>${esc(fuenteUnaLinea(p))}</span>${dir ? '' : nb('p_cierre', pill(p.cierre === 'OK' ? 'good' : 'warn', p.cierre === 'OK' ? 'cuadra con lo facturado' : p.cierre.toLowerCase()), `data-p="${esc(p.id)}"`)}</p>
-    ${BI('<p class="prosa small" style="margin:8px 0">' + fuenteLarga(p.clase) + '.</p>')}
+    ${BI_DET('<p>' + fuenteLarga(p.clase) + '.</p>', 'Detalle técnico de la fuente')}
     <details class="mas-info" style="margin-top:8px"><summary>Ver demanda y sell in por mes</summary><div style="margin-top:8px">
     ${og ? `<p class="prosa" style="margin-bottom:8px">Este producto, en 12 meses: ${Object.entries(og).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<b>${esc((TIPO[t] || { c: t }).c)}</b> ${fN(v)} pz (${ogT ? nf.format(v / ogT * 100) : 0} %)`).join(' + ')}.</p>` : ''}
     <p class="aviso info solo-bi" style="margin-bottom:10px"><b>¿Cuál usa el algoritmo?</b> ${dir ? 'La facturación directa de Brinova: en este cliente es la demanda.' : t === 'sell out' ? 'El sell out (venta de las tiendas al consumidor). El sell in sirve para comprobar que los datos cuadran.' : 'El sell through: lo que ' + esc(p.clase) + ' le vende a sus clientes. El sell in (lo que Brinova le factura) sirve para comprobar que los datos cuadran.'}</p>
@@ -1537,18 +1851,19 @@ function htmlInventario(p) {
   /* 0.5.1: la barra usa los umbrales de la clase (T_DOH_OBJETIVO); el tope es 200 días o más si el exceso pasa de 180 */
   const ub = umbral(p.clase), tope = Math.max(200, Math.ceil(ub.exceso * 10 / 9 / 10) * 10), pc = v => v * 100 / tope;
   const dd = dias(p), pos = i && dd != null ? Math.min(100, dd * 100 / tope) : null;
-  return `<div class="panel-h"><h2>Inventario y precio</h2></div><div><div>
+  return `<div class="panel-h"><h2>Inventario y precio</h2></div><div class="det-dos${i ? '' : ' uno'}"><div class="det-col"><h3 class="det-col-t">Inventario del distribuidor</h3>
     ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(ip.dist / f)} ${esc(uNom(p))}</b> (${fN(ip.dist)} pz)${ip.tr ? `; además vienen en camino <b>${fN1(ip.tr / f)} ${esc(uNom(p))}</b> (${fN(ip.tr)} pz en ${ip.ordenes.length || 'varias'} ${ip.ordenes.length === 1 ? 'orden' : 'órdenes'}${ip.ordenes.length ? ', primera llegada ' + esc(fmtEta([...ip.ordenes].map(ordEta).filter(Boolean).sort()[0])) : ''}). Inventario total: <b>${fN(ip.tot)} pz</b>` : ''}. Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : diasTxt(dd) + '') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + (Math.round(i.dohFuente) === 1 ? ' día.' : ' días.') : ''}</p>
       ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${pc(rz)}%;background:#F6C9C6"></span><span style="width:${pc(ub.sobrestock - rz)}%;background:#CFEBDD"></span><span style="width:${pc(ub.exceso - ub.sobrestock)}%;background:#FBE6BF"></span><span style="width:${pc(tope - ub.exceso)}%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
       <div class="escala-l"><span>0</span><span>${fN(rz)} quiebre</span><span>${fN(ub.sobrestock)} sobrestock</span><span>${fN(ub.exceso)} exceso</span><span>${fN(tope)}+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b>${ip.tr ? ' · los días incluyen el tránsito que cuenta' : ''}</p>` : ''}
       ${ip.tr ? `<div style="margin-top:8px">${tablaOrdenes(p)}${reglaTransito() ? `<p class="small muted" style="margin-top:6px">Tránsito que cuenta: ${esc(reglaTransito())}</p>` : ''}</div>` : ''}
       ${progDe(p) ? `<div style="margin-top:8px"><p class="prosa">Además hay <b>${fN(progDe(p).cajas)} cajas</b> (${fN(progDe(p).pz)} pz) en pedidos programados. ${PROG_KAM.replace('Pedidos programados: t', 'T')}</p>${tablaOrdenes(p, true)}${reglaProgramados() ? `<p class="small muted solo-bi" style="margin-top:6px">Regla completa (BI): ${esc(reglaProgramados())}</p>` : ''}</div>` : ''}
-      <div class="chart" id="ch-inv" style="margin-top:10px"></div>
-      <p class="small muted">${Object.keys(i.hist || {}).length < 3 ? esc(p.clase) + ' solo ha enviado ' + Object.keys(i.hist || {}).length + ' cortes de inventario: el historial es corto.' : 'Un corte de inventario por mes.'}</p>`
+      ${(() => { const nh = Object.keys(i.hist || {}).length;      /* 070-DETALLE: sin cortes no se dibuja un gráfico vacío */
+        return nh ? `<div class="chart" id="ch-inv" style="margin-top:10px"></div><p class="small muted">${nh < 3 ? esc(p.clase) + ' solo ha enviado ' + nh + (nh === 1 ? ' corte' : ' cortes') + ' de inventario: el historial es corto.' : 'Un corte de inventario por mes.'}</p>`
+          : `<p class="small muted" style="margin-top:8px">Todavía no hay historial de cortes de inventario de este producto.</p>`; })()}`
       : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
-  </div><div style="margin-top:14px">
-    <div class="tw" role="region" tabindex="0" aria-label="Precio por código"><table class="tbl"><caption style="padding:8px 10px">Precio por código</caption><thead><tr><th class="l">Código</th><th class="l">Presentación</th><th>Lista</th><th>Facturado (6M)</th><th>Desc.</th><th>Por pieza</th></tr></thead><tbody>
-    ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l" style="white-space:normal;min-width:220px"><b>${esc(descB(c))}</b>${nombreDist(p, c, true)}<span class="small muted" style="display:block">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</span></td><td class="l">${esc(cNom(c))}</td><td title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td>${c.precioFact ? fC2(c.precioFact) : '—'}</td><td>${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td>${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
+  </div><div class="det-col"><h3 class="det-col-t" id="pr-t">Precio por código</h3>
+    <div class="tw" role="region" tabindex="0" aria-labelledby="pr-t"><table class="tbl tprecio"><thead><tr><th class="l">Código</th><th class="l">Presentación</th><th>Lista</th><th>Facturado (6M)</th><th>Desc.</th><th>Por pieza</th></tr></thead><tbody>
+    ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l pr-cod"><b>${esc(descB(c))}</b>${nombreDist(p, c, true)}<span class="small muted" style="display:block">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</span></td><td class="l" data-l="Presentación">${esc(cNom(c))}</td><td data-l="Lista" title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td data-l="Facturado (6M)">${c.precioFact ? fC2(c.precioFact) : '—'}</td><td data-l="Desc.">${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td data-l="Por pieza">${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
     </tbody></table></div>
     <p class="small muted" style="margin-top:8px">El valor de tu forecast es <b>unidades × precio de lista</b> del distribuidor. “Facturado (6M)” = colones facturados ÷ unidades facturadas en los últimos 6 meses${BI(' (DATA SELL IN). Precio de lista: ' + esc([...new Set(p.codigos.map(c => c.precioFuente).filter(Boolean))].join(' / ') || 'FCST_ALGORITMO'))}.${p.codigos.some(c => c.precio == null && precioU(p, c) != null) ? ' * = estimado con el precio por pieza del código principal.' : ''}</p>
   </div></div>`;
@@ -1557,13 +1872,15 @@ function pintarDetalle(p) {
   const f = fac(p), t = tend(p), a = alertas(p), av = avisosCaptura(p), e = estInv(dias(p), p.clase), d = dif(p);
   const notaId = p.princ.id, nota = (local[notaId] && local[notaId].nota != null) ? local[notaId].nota : ((remote[notaId] && remote[notaId].nota) || '');
   const otros = P.filter(x => x.grupo === p.grupo && x.id !== p.id), inv = p.inv;
-  $('#det').innerHTML = `<div class="det-in">
-  <div class="det-h"><div style="min-width:0"><h2 id="det-t">${esc(p.nombre)}</h2>
-    <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div>
+  /* 070-DETALLE: panel central. Cabecera fija (nombre + cerrar) fuera del área que se desplaza; el resto del encabezado abre el cuerpo */
+  $('#det').innerHTML = `<header class="det-h"><div class="det-tit"><h1 id="det-t">${esc(p.nombre)}</h1>
+    <div class="meta">${esc(p.clase)} · ${esc(p.cat ? nombreCat(p.cat) : 'Sin categoría')}${p.catFuente ? BI(' (categoría de ' + esc(CATF[p.catFuente] || p.catFuente) + ')') : ''} · se muestra en ${nb('p_unidad', esc(uNom(p)), `data-p="${esc(p.id)}"`)}</div></div>
+    <form method="dialog"><button class="cerrar" value="cerrar" autofocus aria-label="Cerrar el detalle"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9"/></svg><span>Cerrar</span></button></form></header>
+  <div class="det-in">
+  <div class="det-sub">
     <div class="badges">${pill('src', 'Demanda: ' + fuenteTxt(p.clase))}${a.map(([c, x]) => pill(c, x)).join('')}${conExportacion() ? `<button type="button" class="chip" data-c3prod="${esc(p.id)}">Ver en contenedor 3D</button>` : ''}</div>
-    ${(p.sustituidos || []).length ? `<div class="small muted" style="margin-top:6px">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
-    ${otros.length ? `<div class="small muted" style="margin-top:6px">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
-    <form method="dialog"><button class="cerrar" value="cerrar" autofocus>Cerrar</button></form></div>
+    ${(p.sustituidos || []).length ? `<div class="small muted">${p.sustituidos.map(x => 'Antes se vendía como ' + esc(x.descBrinova || x.cod) + BI(' · incluye el código anterior ' + esc(x.cod) + ' (sustituido por ' + esc(x.por) + ')')).join('<br>')}</div>` : ''}
+    ${otros.length ? `<div class="small muted det-otros">También en: ${otros.map(o => `<button type="button" class="chip" data-p="${esc(o.id)}">${esc(o.clase)}</button>`).join(' ')}</div>` : ''}</div>
   <div id="det-avisos">${avisosHtml(av)}</div>
   <div class="mini">
     <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>${(() => { const vl = ventaLocalDe(p.clase), vp = p.ventaLocal; return vl && vp && ok(vp.total3) ? `<span class="sub" title="${esc(vl.queEs || '')}">${esc(fMon(vp.total3, vl.moneda))} en ${esc(vl.moneda)}</span>` : ''; })()}</div>
@@ -1774,6 +2091,7 @@ function setKam(id, m, v) {
   if (!editable(m)) return;                                       // nunca se guarda un mes fuera de la ventana de captura
   local[id] = local[id] || { meses: {} }; local[id].meses = local[id].meses || {}; local[id].meses[m] = v;
   guardarLocal(); programar(id);
+  const L = LINES[id]; if (L) document.dispatchEvent(new CustomEvent('fcst:captura', { detail: { clase: L.p.clase, cod: L.c.cod, mes: m, id, valor: v } }));      // 070-GRAFICO: contrato común (brief 0.7.0 › regla 4)
 }
 function programar(id) { clearTimeout(timers[id]); estado('Guardando…', 'pend'); timers[id] = setTimeout(() => guardar(id), 700); }
 function soloVentana(o) { const r = {}; Object.keys(o || {}).forEach(m => { if (MK.includes(m)) r[m] = o[m]; }); return r; }
@@ -1924,7 +2242,19 @@ document.addEventListener('change', ev => {
   if (C3SEL[ev.target.id]) { C3[C3SEL[ev.target.id]] = ev.target.value; if (ev.target.id === 'c3-clase') { C3.prod = ''; C3.pres = ''; C3.orden = ''; } if (ev.target.id === 'c3-desde' || ev.target.id === 'c3-hasta') C3.orden = ''; C3.idx = 0; pintarContenedor(); }
   if (ev.target.id === 'rs-m') { RS.m = ev.target.value; RS.path = []; RS.dim = null; RS.lim = 200; pintarRastreo(); }
 });
-$('#det').addEventListener('close', () => { S.abierto = null; RS.p = null; });
+$('#det').addEventListener('close', () => {
+  const id = S.abierto; S.abierto = null; RS.p = null;
+  /* 070-DETALLE: el navegador devuelve el foco a quien abrió el panel; si ese botón se volvió a pintar mientras tanto (la lista se repinta al capturar), se busca el mismo producto */
+  const o = abrir.desde; abrir.desde = null;
+  if (o && !o.isConnected && id) { const b = [...document.querySelectorAll('[data-p]')].find(x => x.dataset.p === id && !x.closest('dialog')); if (b) b.focus(); }
+});
+/* 070-DETALLE: el gráfico del detalle se redibuja en cuanto cambia una captura de este producto (el evento lo dispara quien guarda la captura) */
+let rafDetCap = 0;
+document.addEventListener('fcst:captura', ev => {
+  const x = ev.detail || {}, p = S.abierto && PID[S.abierto];
+  if (!p || (x.clase && x.clase !== p.clase) || (x.cod && !p.codigos.some(c => c.cod === x.cod))) return;
+  cancelAnimationFrame(rafDetCap); rafDetCap = requestAnimationFrame(() => { if (S.abierto === p.id) refrescarDetalle(p); });
+});
 /* cierre al tocar fuera donde el navegador no tiene closedby (Safari) */
 if (typeof HTMLDialogElement !== 'undefined' && !('closedBy' in HTMLDialogElement.prototype)) {
   document.querySelectorAll('dialog[closedby="any"]').forEach(dlg => {
