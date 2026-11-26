@@ -274,13 +274,51 @@ const algPz = (p, ms) => sum(p.alg, ms);
 const algPz6 = p => algPz(p, MK);                                                // nombre histórico: ahora suma la ventana real (MK)
 const kamPz6 = p => kamPzM(p, MK);
 const tend = p => p.d3ly > 0 ? p.d3 / p.d3ly - 1 : null;
-/* días de inventario (auditoría 23/11): venta de los últimos 3 meses con reporte completo de la clase (sin mesesIncompletos);
-   si quedan menos de 2, los últimos 6 completos. La página recalcula con esto; productos[].inv.doh del generador queda de referencia. */
+/* 083-DIAS (25-nov, decisiones del usuario; misma regla que generar_portal_kam.py › base_doh). Ventana de venta de los días, POR PRODUCTO:
+   - venta = la que corresponde al inventario reportado: productos[].inv.ventaPz (sell through del distribuidor) si viene; si no, .real;
+   - meses = los 3 últimos meses completos de la clase (sin mesesIncompletos) que terminan en el último mes cerrado o, si el corte de
+     inventario es anterior (dato viejo), en el mes del corte; si alguno de esos 3 meses tiene venta 0, los 6 últimos completos;
+   - sin venta en esos 6 meses: no hay días ("sin venta en 6 meses"). La página recalcula con esto; inv.doh del generador es referencia. */
+function k83Fin(cl) { const f = fechaInv(cl), fin = MH[MH.length - 1], fm = f ? String(f).slice(0, 7) : null; return fm && fm < fin ? fm : fin; }
+function k83Meses(cl, n) { const inc = INCOMP[cl] || [], fin = k83Fin(cl); return MH.filter(m => m <= fin && !inc.includes(m)).slice(-n); }
 const _MDOH = {};
-function mesesDoh(cl) { if (_MDOH[cl]) return _MDOH[cl]; const inc = INCOMP[cl] || []; let ms = MH.slice(-3).filter(m => !inc.includes(m)); if (ms.length < 2) ms = MH.slice(-6).filter(m => !inc.includes(m)); return (_MDOH[cl] = ms); }
-const ventaDoh = p => sum(p.real, mesesDoh(p.clase));
-const diasDoh = p => mesesDoh(p.clase).length * 30.4;
-const dias = p => { if (!p.inv) return null; const v = ventaDoh(p); return v > 0 ? Math.round(invTot(p) / (v / diasDoh(p))) : null; };      // 0.5.0: incluye el tránsito que cuenta
+function mesesDoh(cl) { return _MDOH[cl] || (_MDOH[cl] = k83Meses(cl, 3)); }      // ventana base de la clase (3 meses)
+function baseDoh(p) {
+  if (p._k83) return p._k83;
+  const s = (p.inv && p.inv.ventaPz) || p.real || {}, m3 = mesesDoh(p.clase);
+  if (m3.length === 3 && m3.every(m => (+s[m] || 0) > 0)) return (p._k83 = { meses: m3, n: 3, venta: sum(s, m3) });
+  const m6 = k83Meses(p.clase, 6), v6 = sum(s, m6);
+  return (p._k83 = { meses: m6, n: 6, venta: v6 > 0 ? v6 : 0, sinVenta: !(v6 > 0), motivo: 'mes sin venta' });
+}
+const ventaDoh = p => baseDoh(p).venta;
+const diasDoh = p => baseDoh(p).meses.length * 30.4;
+const dias = p => { if (!p.inv || invTot(p) < 0) return null; const v = ventaDoh(p); return v > 0 ? Math.round(invTot(p) / (v / diasDoh(p))) : null; };      // 0.5.0: incluye el tránsito que cuenta
+/* 083-DIAS: la ventana en una línea, y el texto cuando no hay días */
+function k83Ventana(p) {
+  const b = baseDoh(p), r = rango(b.meses), viejo = invViejo(p.clase) ? ', que terminan en el mes del corte de inventario' : '';
+  if (b.sinVenta) return `Sin venta en ${b.meses.length} meses (${r}${viejo}): no se pueden calcular días.`;
+  return `Venta usada: ${r} (${b.meses.length} meses${b.n === 6 ? ', porque en los últimos 3 hubo un mes sin venta' : ''}${viejo}).`;
+}
+const k83SinDias = p => invTot(p) < 0 ? 'inventario negativo en el reporte' : baseDoh(p).sinVenta ? 'sin venta en 6 meses' : 'sin venta reciente';
+/* 0.8.3: el reporte trae existencia negativa (INDAVIGO): no se calculan días ni se marca riesgo de quiebre */
+const k83NegTxt = p => invTot(p) < 0 ? `El reporte de ${esc(p.clase)} trae inventario negativo (${fN(invTot(p))} pz): no se pueden calcular días; conviene confirmarlo con el distribuidor.` : null;
+/* 083-DIAS: producto que se vende directo (productos[].sinInventario, p. ej. LIKE de Xtra en PANAMA): no tiene inventario del distribuidor */
+const k83SinInvTxt = p => p.sinInventario ? 'Este producto se vende directo (sell in de Brinova), no por el distribuidor: no tiene inventario del distribuidor ni días.' : null;
+/* 083-DIAS: cantidades de inventario en la unidad del producto: "≈119,6" si la división no es exacta (antes "120") */
+const k83Cant = v => !ok(v) ? '—' : Math.abs(v - Math.round(v)) < 1e-6 ? fN(v) : '≈' + nf1.format(v);
+/* 083-DIAS: "El reporte de CODISA dice 23 días (DOH Unidades 3 Meses)". Solo si el generador lo marcó como días del propio distribuidor
+   (inv.dohFuenteDe, de MAESTROS_DISTRIBUIDORES.xlsx › T_INVENTARIO_DIAS_FUENTE) y el valor es positivo. Datos viejos sin ese campo: no se muestra. */
+function k83Reporte(i) {
+  const x = i && i.dohFuenteDe; if (!x || !ok(i.dohFuente) || !(i.dohFuente > 0)) return '';
+  const meses = /MES/i.test(x.unidad || '');
+  return `El reporte de ${esc(x.distribuidor)} dice ${diasTxt(i.dohFuente)}${x.columna ? ' (' + esc(x.columna) + (meses ? ', en meses × 30' : '') + ')' : ''}.`;
+}
+/* 083-DIAS: ventana de una selección en una línea (diálogo de los días de la clase) */
+function k83VentanaSel(st) {
+  const n6 = st.filter(p => baseDoh(p).n === 6 && !baseDoh(p).sinVenta).length, n0 = st.filter(p => baseDoh(p).sinVenta).length, n3 = st.length - n6 - n0;
+  const cls = [...new Set(st.map(p => p.clase))], r3 = cls.length === 1 ? ' (' + rango(mesesDoh(cls[0])) + ')' : '';
+  return `Ventana: últimos 3 meses completos${r3} en ${n3} ${n3 === 1 ? 'producto' : 'productos'}` + (n6 ? `; 6 meses en ${n6} con un mes sin venta` : '') + (n0 ? `; ${n0} sin venta en 6 meses (cuentan su inventario, no su venta)` : '') + '.';
+}
 /* foto vieja: el último corte es anterior al mes de datos → se muestra "corte dd/mm/aaaa · dato viejo", sin marca de riesgo ni sobrestock */
 /* QA 0.4.0: un corte anterior al primer día del mes de datos (calendario.corte) ya es viejo; no es un umbral de días */
 const MES_DATOS = (CAL && CAL.corte) || D.corte;
@@ -686,12 +724,12 @@ const EXP = {
     const cl = [...new Set(st.map(p => p.clase))];
     const uk = umbral(S.dist);      // 0.5.1: umbrales de la clase o, con todos los distribuidores, de la selección completa
     return { t: 'Días de inventario en el distribuidor', v: r.doh == null ? 'No aplica' : diasTxt(r.doh) + '', u: r.doh == null ? '' : 'días de venta que cubre el inventario',
-      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor.' : `Días que alcanza el inventario al ritmo de venta de los últimos 3 meses completos (${st.length} productos con inventario).`,
+      que: r.doh == null ? 'Venta directa o cadenas: no hay inventario de distribuidor.' : `Días que alcanza el inventario al ritmo de venta del distribuidor (${st.length} productos con inventario). ${esc(k83VentanaSel(st))}`,
       formula: 'piezas en inventario del último corte ÷ (piezas vendidas en los meses completos ÷ (meses × 30,4 días))',
       filas: r.doh == null ? [] : (() => { const x = r.dip || { invPz: r.invPz, ventaPz: r.ventaPz, ventaDiariaPz: r.vdPz };      // 0.4.0: en piezas (diasInventarioPz), no a precio de lista
         const prog = r.progPz > 0 ? [['Pedidos programados (' + r.progOrd.size + ' ' + (r.progOrd.size === 1 ? 'orden' : 'órdenes') + '; no suman días)', fN(r.progPz) + ' pz · ' + fN(r.progCajas) + ' cajas']] : [];
         const comp = r.invTrPz > 0 ? [['En el distribuidor (último corte)', fN(r.invDistPz) + ' pz'], ['En tránsito (órdenes que cuentan)', fN(r.invTrPz) + ' pz'], ['Inventario total', fN(r.invPz) + ' pz']] : [['Inventario', fN(x.invPz) + ' pz']];
-        return comp.concat([['Venta de los meses completos de esos productos', fN(x.ventaPz) + ' pz'], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ')).join('<br>')], ['Venta diaria', fN1(x.ventaDiariaPz) + ' pz'], ['Días de inventario', fN(r.doh), 1], ['Valor del inventario a precio de lista', fC(r.inv)]]).concat(prog); })(),
+        return comp.concat([['Venta de los meses completos de esos productos', fN(x.ventaPz) + ' pz'], ['Meses usados', cl.map(c => esc(c) + ': ' + mesesDoh(c).map(ml).join(', ') + (invViejo(c) ? ' (terminan en el mes del corte)' : '')).join('<br>') + (st.some(p => baseDoh(p).n === 6) ? '<br>6 meses en los productos con un mes sin venta' : '')], ['Venta diaria', fN1(x.ventaDiariaPz) + ' pz'], ['Días de inventario', fN(r.doh), 1], ['Valor del inventario a precio de lista', fC(r.inv)]]).concat(prog); })(),
       bi: r.dip ? `<p>Días de la ${S.dist === 'TODOS' ? 'selección completa' : 'clase'} tomados de diasInventarioPz (${fN(r.dip.productos)} productos${r.dip.fecha ? ', corte ' + fechaCorta(r.dip.fecha) : ''}). ${esc((D.diasInventarioPz || {}).regla || '')}</p>` : '<p>Calculado en la página: Σ inventario pz ÷ Σ (venta pz de los meses completos ÷ días), sin precio de lista.</p>',
       fuentes: ['Reporte de inventario de cada distribuidor (inventario unificado), convertido a piezas con la misma regla de unidades que la venta', 'Cortes: ' + (cl.length ? cl.map(c => esc(c) + ' ' + fechaCorta(D.distribuidores[c].invFecha) + ' (' + D.distribuidores[c].invCortes + ' cortes)').join(' · ') : '—')],
       nota: `${r.invTrPz > 0 && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + '. ' : ''}${r.progPz > 0 ? PROG_KAM + BI(' Regla completa: ' + esc(reglaProgramados())) + ' ' : ''}${umbralFuente()}${uk.mixto ? ' (promedio ponderado por la venta diaria de cada distribuidor)' : ''}: menos de ${fN(uk.riesgo)} días${KAMN === 'MONICA' ? ' (exportación)' : ''} = riesgo de quiebre; más de ${fN(uk.sobrestock)} = sobrestock; más de ${fN(uk.exceso)} = exceso.` };
@@ -745,13 +783,13 @@ const EXP = {
   },
   p_inv(ds) {
     const p = PID[ds.p], f = fac(p), i = p.inv;
-    if (!i) return { t: 'Inventario · ' + p.nombre, v: 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'El distribuidor no ha enviado inventario de este producto.' };
+    if (!i) return { t: 'Inventario · ' + p.nombre, v: p.sinInventario ? 'Sin inventario' : 'No aplica', u: '', que: tipoDe(p.clase) === 'sell in directo' ? 'Venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : k83SinInvTxt(p) || 'El distribuidor no ha enviado inventario de este producto.' };
     const vd = dias(p) == null ? 0 : ventaDoh(p) / diasDoh(p), e = estInv(dias(p), p.clase), up = umbral(p.clase);
     const ip = invPartes(p);
-    return { t: 'Inventario y días · ' + p.nombre, v: fN1(ip.tot / f) + ' ' + uNom(p), u: ip.tr ? 'distribuidor al ' + fechaCorta(i.fecha) + ' + en tránsito' : 'al ' + fechaCorta(i.fecha),
+    return { t: 'Inventario y días · ' + p.nombre, v: k83Cant(ip.tot / f) + ' ' + uNom(p), u: ip.tr ? 'distribuidor al ' + fechaCorta(i.fecha) + ' + en tránsito' : 'al ' + fechaCorta(i.fecha),
       que: ip.tr ? `Inventario de ${esc(p.clase)} en su último corte más lo que viene en camino (órdenes en tránsito que cuentan), y cuántos días le alcanza.` : `Inventario de ${esc(p.clase)} en su último corte y cuántos días le alcanza.`,
       formula: 'días = inventario ÷ (venta de los meses completos ÷ (meses × 30,4 días))',
-      filas: (ip.tr ? [['En el distribuidor (corte ' + fechaCorta(i.fecha) + ')', fN(ip.dist) + ' pz'], ['En tránsito (' + ip.ordenes.length + ' ' + (ip.ordenes.length === 1 ? 'orden' : 'órdenes') + ')', fN(ip.tr) + ' pz'], ['Inventario total', fN(ip.tot) + ' pz', 1]] : [['Inventario (piezas)', fN(ip.tot) + ' pz']]).concat([['Venta de ' + mesesDoh(p.clase).map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? 'sin venta reciente' : fN(dias(p)), 1], ['Días según el propio reporte del distribuidor', i.dohFuente == null ? '—' : fN(i.dohFuente)]]).concat(progDe(p) ? [['Pedidos programados (no suman días)', fN(progDe(p).pz) + ' pz · ' + fN(progDe(p).cajas) + ' cajas']] : []),
+      filas: (ip.tr ? [['En el distribuidor (corte ' + fechaCorta(i.fecha) + ')', fN(ip.dist) + ' pz'], ['En tránsito (' + ip.ordenes.length + ' ' + (ip.ordenes.length === 1 ? 'orden' : 'órdenes') + ')', fN(ip.tr) + ' pz'], ['Inventario total', fN(ip.tot) + ' pz', 1]] : [['Inventario (piezas)', fN(ip.tot) + ' pz']]).concat([['Venta de ' + baseDoh(p).meses.map(ml).join(', ') + ' (piezas)', fN(ventaDoh(p)) + ' pz'], ['Ventana', esc(k83Ventana(p))], ['Venta diaria', nf1.format(vd) + ' pz por día'], ['Días de inventario', dias(p) == null ? k83SinDias(p) : fN(dias(p)), 1]]).concat(k83Reporte(i) ? [['Días según el reporte de ' + esc(i.dohFuenteDe.distribuidor), fN(i.dohFuente) + (i.dohFuenteDe.columna ? ' (' + esc(i.dohFuenteDe.columna) + ')' : '')]] : []).concat(progDe(p) ? [['Pedidos programados (no suman días)', fN(progDe(p).pz) + ' pz · ' + fN(progDe(p).cajas) + ' cajas']] : []),
       bi: tablaOrdenes(p) + (reglaTransito() ? `<p>Regla del tránsito: ${esc(reglaTransito())}</p>` : '') + (progDe(p) && reglaProgramados() ? `<p>Regla de pedidos programados: ${esc(reglaProgramados())}</p>` : ''),
       fuentes: [`Reporte de inventario de ${esc(p.clase)} (${(D.distribuidores[p.clase] || {}).invCortes || 0} cortes; último ${fechaCorta(i.fecha)}), convertido a piezas con la regla de unidades del cluster`],
       tec: 'productos[].inv.pz / pzDistribuidor / pzTransito / pzTotal, .inv.hist, productos[].transito', nota: `${ip.tr && reglaTransito() ? 'Tránsito que cuenta: ' + esc(reglaTransito()) + ' ' : ''}Estado: ${e ? e[1] : 'sin dato'}. Umbrales${UMB ? ' de ' + esc(p.clase) + BI(' (' + esc(UMB.fuente || 'MAESTROS.xlsx › T_DOH_OBJETIVO') + ')') : ''}: menos de ${fN(up.riesgo)} días riesgo de quiebre, más de ${fN(up.sobrestock)} sobrestock, más de ${fN(up.exceso)} exceso.` };
@@ -1275,7 +1313,7 @@ function catFuenteTxt() { const c = D.categorias; if (!c || Array.isArray(c)) re
 /* totales de una categoría, en colones a precio de lista (no se pueden sumar cajas de tamaños distintos) */
 function totCat(ps) {
   const r = { d3: 0, d3ly: 0, alg: 0, kam: 0, inv: 0 };
-  ps.forEach(p => { r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly); r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); if (p.inv) r.inv += pv(p, invTot(p)); });
+  ps.forEach(p => { r.d3 += pv(p, p.d3); r.d3ly += pv(p, p.d3ly); r.alg += pv(p, algPz6(p)); r.kam += kamValM(p, MK); if (p.inv) r.inv += pv(p, Math.max(invTot(p), 0)); });
   r.t = r.d3ly > 0 ? r.d3 / r.d3ly - 1 : null; r.dif = r.alg > 0 ? r.kam / r.alg - 1 : null;
   return r;
 }
@@ -1287,7 +1325,7 @@ function itemLista(p) {
         ${a.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}</span>` : ''}</span>
       <span data-l="12 meses + pronóstico estimado">${spark(p)}</span>
       <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
-      <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + (conTransito(p) ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${e ? pill(e[0], diasTxt(dias(p)) + '') + (invViejo(p.clase) ? `<small class="warn">${esc(viejoTxt(fechaInv(p.clase)))}</small>` : '') : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
+      <span class="r v" data-l="Inventario">${p.inv ? k83Cant(invTot(p) / f) + (conTransito(p) ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${e ? pill(e[0], diasTxt(dias(p)) + '') + (invViejo(p.clase) ? `<small class="warn">${esc(viejoTxt(fechaInv(p.clase)))}</small>` : '') : k83SinDias(p)}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : p.sinInventario ? 'sin inventario (venta directa)' : 'sin reporte'}</small>`}</span>
       <span class="r v" data-l="Pronóstico estimado">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l="Precio lista">${pr != null ? fC2(pr) : pill('bad', 'sin precio')}<small>por ${esc(esEmpaque(p) || p.uPz > 1 ? String(presDe(p.princ) || 'unidad').toLowerCase() : 'pieza')}</small></span>
@@ -1300,7 +1338,7 @@ function aggGrupo(ps) {
   const a = { ps, u: unidadGraf(ps), d3: 0, d3ly: 0, inv: 0, conInv: 0, vd: 0, tr: false, alg: 0, kam: 0, algC: 0, kamC: 0, real: {}, algM: {}, prMin: null, prMax: null, alerta: 0 };
   ps.forEach(p => {
     a.d3 += p.d3 || 0; a.d3ly += p.d3ly || 0; a.alg += algPz6(p); a.kam += kamPz6(p); a.algC += pv(p, algPz6(p)); a.kamC += kamValM(p, MK);
-    if (p.inv) { a.inv += invTot(p); a.conInv++; const v = ventaDoh(p); if (v > 0) a.vd += v / diasDoh(p); if (conTransito(p)) a.tr = true; }
+    if (p.inv) { a.inv += Math.max(invTot(p), 0); a.conInv++; const v = ventaDoh(p); if (v > 0) a.vd += v / diasDoh(p); if (conTransito(p)) a.tr = true; }
     MH.forEach(m => { a.real[m] = (a.real[m] || 0) + (p.real[m] || 0); }); MF.forEach(m => { a.algM[m] = (a.algM[m] || 0) + (p.alg[m] || 0); });
     if (p.precioPz != null) { a.prMin = a.prMin == null ? p.precioPz : Math.min(a.prMin, p.precioPz); a.prMax = a.prMax == null ? p.precioPz : Math.max(a.prMax, p.precioPz); }
     if (alertas(p).length) a.alerta++;
@@ -1321,7 +1359,7 @@ function itemGrupo(a) {
         <span class="meta"><span class="upill ${f > 1 ? 'emp' : 'pz'}">${esc(a.u.nom)}</span> ${n} ${n === 1 ? 'distribuidor' : 'distribuidores'}${a.u.mixto ? ' · presentaciones distintas: suma en piezas' : ''}${a.alerta ? ' · ' + a.alerta + ' con alerta' : ''}</span></span>
       <span data-l="12 meses + pronóstico estimado">${spark({ real: a.real, alg: a.algM })}</span>
       <span class="r v" data-l="Venta 3M">${fN1(a.d3 / f)}<small class="${a.t == null ? '' : a.t >= 0 ? 'up' : 'down'}">${flecha(a.t)}${fP(a.t)}</small></span>
-      <span class="r v" data-l="Inventario">${a.conInv ? fN1(a.inv / f) + (a.tr ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${a.dias != null ? pill(e ? e[0] : '', diasTxt(a.dias)) : 'sin venta'}</small>` + (a.conInv < n ? `<small class="muted">${a.conInv} de ${n} con reporte</small>` : '') : '<small>sin reporte</small>'}</span>
+      <span class="r v" data-l="Inventario">${a.conInv ? k83Cant(a.inv / f) + (a.tr ? '<small class="muted">incl. tránsito</small>' : '') + `<small>${a.dias != null ? pill(e ? e[0] : '', diasTxt(a.dias)) : 'sin venta'}</small>` + (a.conInv < n ? `<small class="muted">${a.conInv} de ${n} con reporte</small>` : '') : '<small>sin reporte</small>'}</span>
       <span class="r v" data-l="Pronóstico estimado">${fN1(a.alg / f)}<small>${fC(a.algC)}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(a.kam / f)}<small class="${a.dif != null && Math.abs(a.dif) > 0.3 ? 'warn' : ''}">${flecha(a.dif)}${fP(a.dif)}</small></span>
       <span class="r v" data-l="Precio lista por pieza">${precio}<small>por pieza</small></span>
@@ -1335,7 +1373,7 @@ function itemDesglose(p, u) {
         <span class="meta">${esc(p.principal)} · se vende en ${esc(pres)}</span></span>
       <span data-l="12 meses + pronóstico estimado">${spark(p)}</span>
       <span class="r v" data-l="Venta 3M">${fN1(p.d3 / f)}<small class="${t == null ? '' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)}</small></span>
-      <span class="r v" data-l="Inventario">${p.inv ? fN1(invTot(p) / f) + `<small>${e ? pill(e[0], diasTxt(dias(p))) : 'sin venta'}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte'}</small>`}</span>
+      <span class="r v" data-l="Inventario">${p.inv ? k83Cant(invTot(p) / f) + `<small>${e ? pill(e[0], diasTxt(dias(p))) : k83SinDias(p)}</small>` : `<small>${tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : p.sinInventario ? 'sin inventario (venta directa)' : 'sin reporte'}</small>`}</span>
       <span class="r v" data-l="Pronóstico estimado">${fN1(algPz6(p) / f)}<small>${fC(pv(p, algPz6(p)))}</small></span>
       <span class="r v" data-l="Tu forecast">${fN1(kamPz6(p) / f)}<small class="${d != null && Math.abs(d) > 0.3 ? 'warn' : ''}">${flecha(d)}${fP(d)}</small></span>
       <span class="r v" data-l=""><button type="button" class="btn gp-det" data-p="${esc(p.id)}">Ver detalle</button></span>
@@ -2304,7 +2342,8 @@ function htmlInventario(p) {
   const ub = umbral(p.clase), tope = Math.max(200, Math.ceil(ub.exceso * 10 / 9 / 10) * 10), pc = v => v * 100 / tope;
   const dd = dias(p), pos = i && dd != null ? Math.min(100, dd * 100 / tope) : null;
   return `<div class="panel-h"><h2>Inventario y precio</h2></div><div class="det-dos${i ? '' : ' uno'}"><div class="det-col"><h3 class="det-col-t">Inventario del distribuidor</h3>
-    ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${fN1(ip.dist / f)} ${esc(uNom(p))}</b> (${fN(ip.dist)} pz)${ip.tr ? `; además vienen en camino <b>${fN1(ip.tr / f)} ${esc(uNom(p))}</b> (${fN(ip.tr)} pz en ${ip.ordenes.length || 'varias'} ${ip.ordenes.length === 1 ? 'orden' : 'órdenes'}${ip.ordenes.length ? ', primera llegada ' + esc(fmtEta([...ip.ordenes].map(ordEta).filter(Boolean).sort()[0])) : ''}). Inventario total: <b>${fN(ip.tot)} pz</b>` : ''}. Vende en promedio ${fN1(mesesDoh(p.clase).length ? ventaDoh(p) / mesesDoh(p.clase).length / f : 0)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? 'sin venta reciente' : diasTxt(dd) + '') + '</b>', `data-p="${esc(p.id)}"`)}.${i.dohFuente != null ? ' Su propio reporte dice ' + fN(i.dohFuente) + (Math.round(i.dohFuente) === 1 ? ' día.' : ' días.') : ''}</p>
+    ${i ? `<p class="prosa">${fechaVieja(i.fecha) || invViejo(p.clase) ? '<span class="pill warn">dato viejo</span> ' : ''}Al <b>${fechaCorta(i.fecha)}</b> ${esc(p.clase)} tenía <b>${k83Cant(ip.dist / f)} ${esc(uNom(p))}</b> (${fN(ip.dist)} pz)${ip.tr ? `; además vienen en camino <b>${k83Cant(ip.tr / f)} ${esc(uNom(p))}</b> (${fN(ip.tr)} pz en ${ip.ordenes.length || 'varias'} ${ip.ordenes.length === 1 ? 'orden' : 'órdenes'}${ip.ordenes.length ? ', primera llegada ' + esc(fmtEta([...ip.ordenes].map(ordEta).filter(Boolean).sort()[0])) : ''}). Inventario total: <b>${fN(ip.tot)} pz</b>` : ''}. ${k83NegTxt(p) ? k83NegTxt(p) : baseDoh(p).sinVenta ? `No vendió en los últimos ${baseDoh(p).meses.length} meses, así que ${nb('p_inv', '<b>no se pueden calcular días</b>', `data-p="${esc(p.id)}"`)}.` : `Vende en promedio ${fN1(ventaDoh(p) / baseDoh(p).meses.length / f)} al mes, así que le alcanza para ${nb('p_inv', '<b>' + (dd == null ? k83SinDias(p) : diasTxt(dd) + '') + '</b>', `data-p="${esc(p.id)}"`)}.`}${k83Reporte(i) ? ' ' + k83Reporte(i) : ''}</p>
+      <p class="small muted k83-vent">${esc(k83Ventana(p))}</p>
       ${pos != null ? `<div class="escala" aria-hidden="true"><span style="width:${pc(rz)}%;background:#F6C9C6"></span><span style="width:${pc(ub.sobrestock - rz)}%;background:#CFEBDD"></span><span style="width:${pc(ub.exceso - ub.sobrestock)}%;background:#FBE6BF"></span><span style="width:${pc(tope - ub.exceso)}%;background:#F5D3A3"></span><span class="mk" style="left:calc(${pos.toFixed(1)}% - 1px)"></span></div>
       <div class="escala-l"><span>0</span><span>${fN(rz)} quiebre</span><span>${fN(ub.sobrestock)} sobrestock</span><span>${fN(ub.exceso)} exceso</span><span>${fN(tope)}+</span></div><p class="small" style="margin-top:4px">Estado: <b>${esc(e ? e[1] : '—')}</b>${ip.tr ? ' · los días incluyen el tránsito que cuenta' : ''}</p>` : ''}
       ${ip.tr ? `<div style="margin-top:8px">${tablaOrdenes(p)}${reglaTransito() ? `<p class="small muted" style="margin-top:6px">Tránsito que cuenta: ${esc(reglaTransito())}</p>` : ''}</div>` : ''}
@@ -2312,7 +2351,7 @@ function htmlInventario(p) {
       ${(() => { const nh = Object.keys(i.hist || {}).length;      /* 070-DETALLE: sin cortes no se dibuja un gráfico vacío */
         return nh ? `<div class="chart" id="ch-inv" style="margin-top:10px"></div><p class="small muted">${nh < 3 ? esc(p.clase) + ' solo ha enviado ' + nh + (nh === 1 ? ' corte' : ' cortes') + ' de inventario: el historial es corto.' : 'Un corte de inventario por mes.'}</p>`
           : `<p class="small muted" style="margin-top:8px">Todavía no hay historial de cortes de inventario de este producto.</p>`; })()}`
-      : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
+      : `<p class="prosa">${tipoDe(p.clase) === 'sell in directo' ? esc(p.clase) + ' es venta directa de Brinova: no hay inventario de distribuidor.' : tipoDe(p.clase) === 'sell out' ? 'La cadena no envía inventario a BI.' : k83SinInvTxt(p) || 'Este distribuidor no ha enviado inventario de este producto.'}</p>`}
   </div><div class="det-col"><h3 class="det-col-t" id="pr-t">Precio por código</h3>
     <div class="tw" role="region" tabindex="0" aria-labelledby="pr-t"><table class="tbl tprecio"><thead><tr><th class="l">Código</th><th class="l">Presentación</th><th>Lista</th><th>Facturado (6M)</th><th>Desc.</th><th>Por pieza</th></tr></thead><tbody>
     ${p.codigos.map(c => { const pr = precioU(p, c), ds = c.precio && c.precioFact ? 1 - c.precioFact / c.precio : null; return `<tr><td class="l pr-cod"><b>${esc(descB(c))}</b>${nombreDist(p, c, true)}<span class="small muted" style="display:block">${esc(c.cod)}${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</span></td><td class="l" data-l="Presentación">${esc(cNom(c))}</td><td data-l="Lista" title="${esc(c.precioFuente || '')}">${pr != null ? fC2(pr) + (c.precio == null ? '*' : '') : pill('bad', 'sin precio')}</td><td data-l="Facturado (6M)">${c.precioFact ? fC2(c.precioFact) : '—'}</td><td data-l="Desc.">${ds != null ? nf.format(ds * 100) + ' %' : '—'}</td><td data-l="Por pieza">${pr != null && c.pzPorU ? fC2(pr / c.pzPorU) : '—'}</td></tr>`; }).join('')}
@@ -2336,7 +2375,7 @@ function pintarDetalle(p) {
   <div id="det-avisos">${avisosHtml(av)}</div>
   <div class="mini">
     <div class="kpi"><span class="lbl">Venta 3 meses</span><span class="big">${nb('p_venta3', fN1(p.d3 / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${t == null ? 'muted' : t >= 0 ? 'up' : 'down'}">${flecha(t)}${fP(t)} contra el año anterior</span>${(() => { const vl = ventaLocalDe(p.clase), vp = p.ventaLocal; return vl && vp && ok(vp.total3) ? `<span class="sub" title="${esc(vl.queEs || '')}">${esc(fMon(vp.total3, vl.moneda))} en ${esc(vl.moneda)}</span>` : ''; })()}</div>
-    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', fN1(invTot(p) / f), `data-p="${esc(p.id)}"`) : 'No aplica'}</span>${inv && conTransito(p) ? `<span class="sub">${fN1(invPartes(p).dist / f)} en el distribuidor + ${fN1(invPartes(p).tr / f)} en tránsito</span>` : ''}<span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? 'sin venta reciente' : diasTxt(dias(p)) + ' · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' ? 'venta directa' : 'sin reporte')}</span></div>
+    <div class="kpi"><span class="lbl">Inventario</span><span class="big">${inv ? nb('p_inv', k83Cant(invTot(p) / f), `data-p="${esc(p.id)}"`) : (p.sinInventario ? 'Sin inventario' : 'No aplica')}</span>${inv && conTransito(p) ? `<span class="sub">${k83Cant(invPartes(p).dist / f)} en el distribuidor + ${k83Cant(invPartes(p).tr / f)} en tránsito</span>` : ''}<span class="vr ${e ? (e[0] === 'good' ? 'up' : e[0] === 'bad' ? 'down' : 'warn') : 'muted'}">${inv ? (dias(p) == null ? k83SinDias(p) : diasTxt(dias(p)) + ' · ' + esc(e[1].toLowerCase())) : (tipoDe(p.clase) === 'sell in directo' || p.sinInventario ? 'venta directa' : 'sin reporte')}</span></div>
     <div class="kpi"><span class="lbl">Pronóstico estimado · ${esc(rango(MK))}</span><span class="big">${nb('p_alg', fN1(algPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="sub">${fC(pv(p, algPz6(p)))} a precio de lista</span></div>
     <div class="kpi"><span class="lbl">Tu forecast · ${esc(rango(MK))}</span><span class="big" id="det-kam">${nb('p_kam', fN1(kamPz6(p) / f), `data-p="${esc(p.id)}"`)}</span><span class="vr ${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" id="det-kam2">${flecha(d)}${fP(d)} contra el pronóstico estimado · ${fC(kamValM(p, MK))}</span></div>
   </div>
