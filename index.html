@@ -533,6 +533,39 @@ details.cat .gp-d:last-child{border-bottom:0}
   .cap-graf:not([hidden]) ~ #grid-box .cap-wrap{max-height:max(260px,min(72vh,calc(100vh - var(--top-h,0px) - var(--cg-h,0px) - 28px)))}
 }
 /* 070-GRAFICO fin */
+/* 090-CAPFILTRO inicio · en Capturar, tocar un producto filtra el gráfico de arriba (fila de título, fila de código, su nombre o "Ver en el gráfico") */
+table.cap tr.grp>td,table.cap tr[data-gp]>th.codr,table.cap tr[data-gp]>td:not(.st-abierto):not(.k82-td){cursor:pointer}
+table.cap tr.grp.cg-on>*{background:var(--accent-soft)}
+table.cap tr.grp.cg-on>th.stk,table.cap tr.cg-on>th.codr{box-shadow:inset 3px 0 0 var(--accent-mark)}
+.cg-sel{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:12px;line-height:1.3;padding:2px 9px;border:1px solid var(--line-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer;min-height:max(26px,var(--target));white-space:nowrap}
+.cg-sel:hover{border-color:var(--accent-mark)}
+.cg-sel[aria-pressed="true"]{background:var(--surface);border-color:var(--accent-mark);color:#075E8A;font-weight:600}
+.cg-sel svg.ico{width:13px;height:13px;stroke:currentColor}
+.cg-sel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 090-CAPFILTRO fin */
+/* 090-UNIDADES inicio · aviso "posible error de unidades" por producto, con Es correcto / Corregir */
+table.cap tr.unid-tr>td.unid-td{text-align:left;white-space:normal;background:var(--surface);padding:4px 8px 8px}
+.unid-g{position:sticky;left:8px;display:flex;flex-direction:column;gap:6px;max-width:min(900px,calc(100vw - 56px));white-space:normal}
+.unid-g:empty{display:none}
+.unid-av{background:var(--bad-bg);color:#7A1A12;border-radius:8px;padding:6px 10px;font-size:12.5px;line-height:1.45;border-left:3px solid #C0392B}
+.unid-av.sin{background:var(--warn-bg);color:#5E3B00;border-left-color:#D99A22}
+.unid-av b{font-weight:600}
+.unid-bb{display:flex;gap:6px;flex-wrap:wrap}
+.unid-bb .btn{font-size:12.5px;padding:4px 12px;min-height:max(28px,var(--target))}
+.unid-form{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:flex-end}
+.unid-l{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink-3);flex:1 1 220px;min-width:0}
+.unid-mot{border:1px solid var(--ink-3);border-radius:8px;padding:5px 8px;font:inherit;font-weight:400;font-size:13px;color:var(--ink);min-height:max(30px,var(--target));width:100%}
+.unid-mot:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.unid-conf{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--ink-3)}
+.inp.unid-on{border-color:#C0392B!important;box-shadow:inset 0 0 0 1px #C0392B}
+#det .unid-g{position:static;max-width:none;margin:0 0 10px}
+.unid-cont{border-color:#C0392B;color:#7A1A12;background:var(--bad-bg)}
+.unid-bi table{font-size:12.5px}
+.unid-bi td,.unid-bi th{white-space:normal}
+@media (pointer:coarse){.unid-mot{font-size:16px}}
+/* 090-UNIDADES fin */
+/* 090-CAJAS: en celular la descripción del sell in de la caja se lee completa (no se corta con "…") */
+@container lista (width < 860px){.item .nm{white-space:normal;overflow-wrap:anywhere}}
 /* 070-PRECISION inicio · selector desde–hasta de la precisión del forecast (ACC PM) en el diálogo de la tarjeta */
 .acc-rango{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end;border:1px solid var(--line);border-radius:var(--r);padding:8px 12px 12px;margin:0 0 6px;min-width:0}
 .acc-rango legend{font-size:12.5px;font-weight:600;color:var(--ink-2);padding:0 4px}
@@ -774,6 +807,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
       </div>
       <div class="lista" id="lista"></div>
     </section>
+    <details class="panel solo-bi unid-bi" id="unid-bi"><summary id="unid-bi-t">Avisos de unidades (BI)</summary><div id="unid-bi-c"></div></details><!-- 090-UNIDADES -->
     <details class="panel solo-bi notas-bi"><summary>Notas de cálculo (BI)</summary><div id="v-metodo"></div></details>
   </section>
   <section class="view" id="v-capturar" hidden>
@@ -795,7 +829,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     </div>
     <section class="panel cap-graf" id="cap-graf" aria-labelledby="cg-t" hidden>
       <div class="panel-h"><h2 id="cg-t">Producto que estás capturando</h2><span class="nota" id="cg-nota"></span>
-        <span class="der"><button type="button" class="chip" id="b-cg" aria-expanded="true" aria-controls="cg-cuerpo">Ocultar gráfico</button></span></div>
+        <span class="der"><button type="button" class="chip" id="b-cgclr" hidden>Quitar filtro</button><button type="button" class="chip" id="b-cg" aria-expanded="true" aria-controls="cg-cuerpo">Ocultar gráfico</button></span></div>
       <div class="cg-cuerpo" id="cg-cuerpo"><div class="chart" id="ch-cap"></div><div class="legend" id="lg-cap"></div></div>
     </section>
     <div id="grid-box"><div class="tw cap-wrap" role="region" tabindex="0" aria-label="Captura del forecast"><table class="cap" id="grid"></table></div></div>
@@ -823,8 +857,8 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=361a0aa5"></script>
-<script src="portal.js?v=4b02597e"></script>
+<script src="app.js?v=60cd6116"></script>
+<script src="portal.js?v=88edfb67"></script>
 </body>
 </html>
 

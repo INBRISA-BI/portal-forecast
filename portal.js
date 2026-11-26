@@ -191,10 +191,16 @@
     if (DEMO || lectura) {      // en solo lectura (BI mirando) y en demostración no se escribe nada
       const real = db.doc;
       /* 082-MESES: en demostración la llamada a set() queda registrada en window.portalDemoGuardados (para las pruebas), sin escribir nada */
-      db.doc = ruta => { const d = real(ruta); return { set: body => { (window.portalDemoGuardados = window.portalDemoGuardados || []).push({ ruta, body }); return Promise.resolve(); }, onSnapshot: d.onSnapshot || (cb => cb({ exists: false })) }; };
+      db.doc = ruta => { const d = real(ruta); return { set: body => { (window.portalDemoGuardados = window.portalDemoGuardados || []).push({ ruta, body }); demoRecordar(ruta, body); return Promise.resolve(); }, onSnapshot: d.onSnapshot || (cb => cb({ exists: false })) }; };
+      /* 090-UNIDADES (pruebas): en demostración las líneas guardadas quedan en sessionStorage de esta pestaña, para probar "Guardar y recargar".
+         Nunca en OneDrive; se borra al cerrar la pestaña. En solo lectura real (BI mirando) no se recuerda nada. */
+      const demoRecordar = (ruta, body) => { const i = ruta.indexOf('/lineas/'); if (!DEMO || i < 0) return; st.lineas[ruta.slice(i + 8)] = body; try { sessionStorage.setItem(demoClave(D), JSON.stringify({ lineas: st.lineas })); } catch (e) { } };
     }
     return db;
   }
+
+  const demoClave = D => 'portal-demo-captura-' + D.kam + '-' + D.ciclo;      // 090-UNIDADES: captura de la demostración (sessionStorage)
+  const demoPrevio = D => { try { const x = JSON.parse(sessionStorage.getItem(demoClave(D)) || 'null'); return x && x.lineas ? { datos: { lineas: x.lineas }, etag: null } : null; } catch (e) { return null; } };
 
   /* ---------- arranque del portal con los datos de un KAM ---------- */
   function iniciar(D, db, persona, lista, actual, lectura, c, expo) {
@@ -325,7 +331,7 @@
     const kam = (PARAMS.get('kam') || '').toUpperCase();
     if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona, expo);
     const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
-    iniciar(D, almacen(null, D, null, 'demo'), persona, lista, kam, !PARAMS.has('editar'), null, PARAMS.has('sinOrdenes') ? null : expo);
+    iniciar(D, almacen(null, D, demoPrevio(D), 'demo'), persona, lista, kam, !PARAMS.has('editar'), null, PARAMS.has('sinOrdenes') ? null : expo);      // 090-UNIDADES: con lo guardado en esta pestaña
   }
 
   async function principal() {
