@@ -529,7 +529,6 @@ details.cat .gp-d:last-child{border-bottom:0}
 .cap-graf .panel-h h2{font-size:14.5px}
 .cap-graf.plegado .cg-cuerpo{display:none}
 .cap-graf.plegado .panel-h{margin-bottom:0}
-.cap-graf.plegado{padding-block:4px}
 @media (min-width:761px){
   .cap-graf{position:sticky;top:var(--top-h,0px);z-index:6;box-shadow:0 6px 14px rgba(20,35,44,.08)}
 }
@@ -845,11 +844,6 @@ body.k82-hay .cap .pie{bottom:68px}
 .cap-tip .tpie{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);font-size:12px}
 @media (prefers-reduced-motion:no-preference){.cap-tip:is(:popover-open,:not([popover])){animation:tip-entra .12s ease-out}@keyframes tip-entra{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}}
 /* gráfico compacto de Capturar */
-.cap-graf{padding:8px 12px 6px}
-.cap-graf .panel-h{margin-bottom:2px}
-.cap-graf .legend{margin-top:2px;gap:4px 6px}
-.cap-graf .legend .ser-l{gap:4px}
-.cap-graf .ser{font-size:12px;padding:1px 9px 1px 6px;min-height:max(24px,var(--target))}
 /* celular: una tarjeta por producto; los meses en una franja horizontal desplazable, cada casilla con su mes */
 @media (max-width:760px){
   #grid-box .cap-wrap{border:0;background:transparent;overflow:visible}
@@ -990,10 +984,6 @@ body.k82-hay #grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--
 .k94-der #estado-envio:not(.good){display:none}
 .k94-der #b-listo{flex-direction:row;align-items:center;gap:6px}
 .k94-der #b-listo .k72-av{display:none}
-.cap-graf .panel-h{flex-wrap:wrap;align-items:center}
-.cap-graf .k94-lg{margin:0;flex:1 1 auto;min-width:0}
-.cap-graf:not(.plegado) #cg-nota{display:none}
-.cap-graf.plegado .k94-lg{display:none}
 .k94-cto{display:none}
 @media (max-width:760px){
   .k94-lgo{display:none} .k94-cto{display:inline}
@@ -1002,13 +992,11 @@ body.k82-hay #grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--
   .k94-tools{flex-wrap:nowrap}
   .k94-tools input[type=search]{flex:0 0 132px;min-width:0}
   .k94-fx{flex:1 1 auto;flex-basis:auto}
-  .cap-graf.plegado #cg-nota{display:none}
-  .cap-graf .k94-lg{flex-basis:100%;order:5}
-  .cap-graf .panel-h h2{flex:1 1 0;min-width:0}
 }
 /* el texto oculto para el lector de pantalla (.vh, position:absolute) se posiciona dentro de su celda: si no, en la franja desplazable del celular
    quedaba fuera de la franja y agrandaba la página a lo ancho */
 .cap .ms>*,.cap .bd,.cap .lnk,.cap .c-t,.cap .c-sum,.cap .k72-est,.cap .c-a,.k94-av .k94-d,.k94-avt,.k94-sig,.unid-cont,.k94-fx button,.k94-fv button,.k94-avc button,.k82-b,.k94-como>summary{position:relative}
+.k95-cgm{display:none}
 .k94-fv{display:contents}
 @media (max-width:760px){
   .k94-fv{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none;flex:1 1 100%}
@@ -1027,6 +1015,126 @@ body.k82-hay #grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--
   #b-listo .k94-lgo{display:none}
 }
 /* 094-CAPTURA fin */
+/* 095-CAPTURA (27-nov, correcciones del usuario) · lista minimalista por categoría, como Resumen: menos bordes y menos gris, pista única "est."
+   bajo cada casilla, Total = total + "vs est." con flecha de color, avisos en texto sobrio, "Cerrar" discreto, producto de 300 px y meses
+   repartidos en el resto. */
+.cap .c-p{border-right:0}
+#grid-box .cap-x .c-p{border-right:1px solid var(--line)}
+.cap .pr .cr>*,.cap .pr .cr .ms>*{border-bottom:0}
+.cap .pr{border-bottom:1px solid var(--line)}
+.cap .pr .unid-row{border-bottom:0}
+.cap .c-l{background:var(--bgc)}
+.cap .cab .c-l{background:var(--surface-2)}
+.cap .cr>*,.cap .ms>*{padding-left:10px;padding-right:10px}
+.cap .c-m{align-items:center;text-align:center;padding-left:6px;padding-right:6px}
+.cap .c-m .inp{max-width:96px}
+.cap .c-m .k82-w{max-width:96px}
+.cap .c-m .hint,.cap .c-m .k95-r{display:block;width:100%;max-width:96px;text-align:right}
+.cap .c-m .k95-r{padding-right:7px;font-variant-numeric:tabular-nums}
+.cap .k95-sum .k95-r{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.cap .p1{gap:6px}
+/* Pendiente (lo normal) no dibuja ícono ni ocupa ancho: su texto queda para el lector de pantalla */
+.cap .p1 .k72-g:has(.k72-pendiente){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.cap .pr-sel{font-weight:600}
+.cap .mk{font-size:10.5px;font-weight:600;color:var(--ink-3);letter-spacing:.02em}
+.cap .c-p.k94-cod{padding-left:28px;flex-direction:row;align-items:center;gap:8px;justify-content:flex-start}
+.cap .c-p.k94-cod .p1,.cap .c-p.k94-cod .p2{display:inline-flex}
+.cap .c-p.k94-cod .p1 b{font-weight:600;font-size:12.5px;color:var(--ink-2)}
+.cap .c-t small,.cap .c-v small{font-size:11.5px}
+.cap .c-t small .up,.cap .c-t small .down,.cap .c-t small .flat{font-weight:600}
+.cap .k94-cod .c-t b,.cap .k94-cod .c-v b{font-weight:500}
+.cap .c-a{align-items:flex-end;padding-left:4px;padding-right:8px}
+.cap .k95-cerrar{all:unset;box-sizing:border-box;cursor:pointer;font-size:12px;font-weight:600;color:var(--good);padding:2px 7px;border-radius:6px;border:1px solid transparent;min-height:max(24px,var(--target));display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.cap .k95-cerrar:hover:not(:disabled){border-color:#B9DFC8;background:var(--good-bg)}
+.cap .k95-cerrar.on{color:var(--ink-2)}
+.cap .k95-cerrar:disabled{opacity:.45;cursor:default}
+.cap .k95-cerrar:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* avisos: texto corto y sobrio, en su color; "+N" con el resto en el title */
+.cap .avs{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cap .avs:empty{display:none}
+.cap .p2 .avs::before{content:"·";margin-right:6px;color:var(--ink-3)}
+.cap .av{font-size:12px;font-weight:600;color:var(--ink-3);cursor:help;white-space:nowrap}
+.cap .av.bad{color:var(--bad)}
+.cap .av.warn{color:var(--warn)}
+.cap .av-mas{font-weight:400;color:var(--ink-3)}
+/* encabezado de categoría: como la lista agrupada de Resumen (fondo suave, ▸ / ▾, cuántos productos) y el subtotal de cada mes */
+.cap .cat-r{--bgc:var(--surface-2)}
+.cap .cat-r>*,.cap .cat-r .ms>*{padding-top:6px;padding-bottom:6px;border-bottom:1px solid var(--line-2);font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.cap .cat-r .c-v,.cap .cat-r .c-t{display:flex;flex-direction:row;align-items:center;justify-content:flex-end}
+.cap .p2 .p2t{flex:0 100 auto}      /* si no cabe, se corta primero el código y el distribuidor, no el aviso */
+.cap .cat-t{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:row;align-items:baseline;flex-wrap:wrap;gap:0 8px;justify-content:flex-start;align-content:center;width:100%;min-height:max(30px,var(--target));border-radius:4px}
+.cap .cat-t .nm{font-size:13.5px;font-weight:600;color:var(--ink)}
+.cap .cat-t .nm::before{content:"▾";display:inline-block;width:16px;color:var(--ink-3)}
+.cap .cat-t[aria-expanded="false"] .nm::before{content:"▸"}
+.cap .cat-t .meta{font-size:12px;font-weight:400;color:var(--ink-3)}
+.cap .cat-t:hover .nm{color:var(--accent)}
+.cap .cat-t:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cap .pie .c-m{align-items:center}
+/* 095-CAPTURA fin */
+/* 095-TARJETA (27-nov, pedido del usuario: "juntá el título con el primer código en celular") · en el celular la tarjeta no tiene una fila de
+   título aparte: el encabezado (marca y nombre en hasta 2 líneas, puntos de aviso, estado, ⓘ, ✓ Cerrar) va pegado a la línea chica del
+   primer código (el principal) y a su franja de casillas; los otros códigos siguen como filas compactas (código, unidad, total y valor en una
+   línea + la franja). El resumen del producto (pronóstico estimado contra tu forecast, sugerido total) queda en el escritorio y en el detalle (ⓘ).
+   Casillas de 44 px de alto en pantallas táctiles (--target). En escritorio no cambia nada. */
+.k94-mcl{display:none}
+@media (max-width:760px){
+  .k94-mcl{display:inline}
+  .cap .c-p{padding:7px 10px 2px}
+  .cap .mk{display:inline;font-size:10px}
+  .cap .pr-sel{-webkit-line-clamp:2;line-clamp:2}
+  .cap .c-a .btn{padding:0 9px}
+  .cap .tit{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p a";border-bottom:0}
+  .cap .tit>*{padding-top:0;padding-bottom:0}
+  .cap .tit .c-p{padding:7px 8px 0 10px}
+  .cap .tit .c-a{padding:6px 10px 0 0;align-items:flex-start}
+  .cap .tit .c-sum,.cap .tit .ms,.cap .tit .c-t,.cap .tit .c-v,.cap .tit .c-l{display:none}
+  .cap .tit .p2:not(:has(.av)){display:none}
+  .cap .tit .p2 .upill,.cap .tit .p2 .k95-n{display:none}
+  .cap .tit .p2 .avs::before{content:none}
+  .cap .pr.plegado .tit{grid-template-areas:"p a" "s s"}
+  .cap .pr.plegado .tit .c-sum{display:flex;grid-area:s;padding:2px 10px 8px}
+  .cap .k94-cod .k95-vt{display:none}
+  .cap .p1{display:flex;align-items:flex-start;gap:6px}
+  .cap .p1 .pr-sel{flex:1 1 auto;min-width:0}
+  .cap .p1 .ib{flex:none;margin:-10px -6px -6px 0}
+  .cap .ms>.c-m .hint,.cap .ms>.c-m .k95-r{max-width:none}
+  /* categoría: rótulo de sección sobre las tarjetas, con su subtotal */
+  .cap .k95-cat{margin:0 0 4px}
+  .cap .cat-r{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p v";--bgc:transparent}
+  .cap .cat-r .ms,.cap .cat-r .c-t,.cap .cat-r .c-a,.cap .cat-r .c-l{display:none}
+  .cap .cat-r>*{padding:2px 2px 4px;border:0}
+  .cap .cat-r .c-p{grid-area:p} .cap .cat-r .c-v{grid-area:v}
+  .cap .cat-t{flex-direction:row;align-items:baseline;gap:8px;min-height:32px}
+  /* gráfico plegado: en el celular no ocupa una tarjeta; se abre con "Mostrar gráfico" de la fila de filtros */
+  .cap-graf.plegado{display:none}
+  .k95-cgm:not([hidden]){display:inline-flex;align-items:center}
+  .cap .cat-t .meta{padding-left:0}
+  .cap .cat-t{justify-content:flex-start;align-items:center}
+  .cap .cat-r .c-v{align-self:center}
+  .cap .cr.k94-cod{column-gap:8px}
+  .cap .k94-cod .c-t small{display:inline}
+  .cap .k94-cod .c-t::before{content:none}
+  .cap .cr.k94-cod{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"p t v" "m m m";border-top:0}
+  .cap .cr.k94-cod+.cr.k94-cod{border-top:1px dashed var(--line-2)}
+  .cap .k94-cod .c-p{grid-area:p;flex-direction:row;align-items:center;gap:6px;padding:4px 0 0 10px;min-width:0;overflow:hidden}
+  .cap .k94-cod .c-p .p1{flex:none;display:flex;font-size:12.5px}
+  .cap .k94-cod .c-p .p2{flex:1 1 auto;min-width:0;margin:0;flex-wrap:nowrap;overflow:hidden}
+  .cap .k94-cod .c-p .pill,.cap .k94-cod .p2t{display:none}
+  .cap .k94-cod .c-t,.cap .k94-cod .c-v{padding:4px 10px 0 0;align-self:center;font-size:12.5px}
+  .cap .k94-cod .c-t{padding-right:6px}
+  .cap .k94-cod .c-t::before{font-size:11px}
+  .cap .k94-cod .c-a{display:none}
+  .cap .ms{padding:3px 10px 6px;gap:5px}
+  .cap .ms>.c-m{padding:2px 5px}
+  .cap .mlab{font-size:11px;line-height:13px}
+  .cap .hint{font-size:10.5px;line-height:12px;min-height:12px}
+  .cap .cr.uno{grid-template-areas:"p p a" "m m m" "t v v"}
+  .cap .uno .c-a{padding:6px 10px 0 0;align-items:flex-start}
+  .cap .uno .c-t,.cap .uno .c-v{padding:0 10px 7px}
+  .cap .uno .c-v{justify-content:flex-end}
+}
+/* 095-TARJETA fin */
+
 </style>
 <style>
 body.cargando>header,body.cargando>section,body.cargando>main{display:none}
@@ -1158,12 +1266,13 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
         <div class="seg" id="k72-fil" role="group" aria-label="Mostrar productos"></div>
         <div class="chips" id="chips2" role="group" aria-label="Filtrar"></div>
         <div class="seg" id="f-capv" role="group" aria-label="Meses visibles"></div>
+        <button type="button" class="chip k95-cgm" id="b-cg2" aria-controls="cap-graf" hidden>Mostrar gráfico</button><!-- 095: en el celular, con el gráfico plegado, solo este botón -->
       </div>
     </div>
     <section class="panel cap-graf" id="cap-graf" aria-labelledby="cg-t" hidden>
-      <div class="panel-h"><h2 id="cg-t">Producto que estás capturando</h2><span class="nota" id="cg-nota"></span><div class="legend k94-lg" id="lg-cap"></div><!-- 094: leyenda en la línea del título -->
+      <div class="panel-h"><h2 id="cg-t">Producto que estás capturando</h2><span class="nota" id="cg-nota"></span>
         <span class="der"><button type="button" class="chip" id="b-cgclr" hidden>Quitar filtro</button><button type="button" class="chip" id="b-cg" aria-expanded="true" aria-controls="cg-cuerpo">Ocultar gráfico</button></span></div>
-      <div class="cg-cuerpo" id="cg-cuerpo"><div class="chart" id="ch-cap"></div></div>
+      <div class="cg-cuerpo" id="cg-cuerpo"><div class="chart" id="ch-cap"></div><div class="legend" id="lg-cap"></div></div><!-- 095: gráfico y leyenda como en la 0.9.3 -->
     </section>
     <div id="grid-box"><div class="cap-wrap" role="region" aria-label="Captura del forecast"><div class="cap" id="grid" role="table" aria-label="Tu forecast por producto y mes"></div></div></div><!-- 094-CAPTURA: grilla con roles de tabla (antes <table>, de 25 en 25) -->
     <div id="grid-mas"></div>
@@ -1190,7 +1299,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=1c51d2fb"></script>
+<script src="app.js?v=e82e9308"></script>
 <script src="portal.js?v=f080bc34"></script>
 </body>
 </html>
