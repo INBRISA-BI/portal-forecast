@@ -492,10 +492,11 @@ dialog.det .det-in{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:conta
 .gf-bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end;margin:0 0 10px}
 .gf-bar:empty{display:none}
 .gf-f{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink-3);min-width:0;max-width:100%}
-.gf-f select{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:6px 10px;min-height:var(--target);font-size:max(14px,1em);color:var(--ink);max-width:100%}
-#gf-prod{width:min(420px,100%)}
-@media (pointer:coarse){.gf-f select{font-size:16px}}
-@media (max-width:620px){.gf-f{flex:1 1 100%}#gf-prod,#gf-dist{width:100%}}
+.gf-f select,.gf-f input{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:6px 10px;min-height:var(--target);font-size:max(14px,1em);color:var(--ink);max-width:100%}
+#gf-prod{width:min(520px,100%)}
+#gf-q{width:min(240px,100%)} /* 091-BUSCA */
+@media (pointer:coarse){.gf-f select,.gf-f input{font-size:16px}}
+@media (max-width:620px){.gf-f{flex:1 1 100%}#gf-prod,#gf-dist,#gf-q{width:100%}}
 .kpi-filtro{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;background:var(--accent-soft);color:#0B4A6B;border-radius:8px;padding:6px 12px;font-size:13px;margin:0}
 .kpi-filtro b{font-weight:600;color:var(--ink)}
 .legend .ser-l{display:flex;flex-wrap:wrap;gap:6px}
@@ -857,7 +858,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=60cd6116"></script>
+<script src="app.js?v=d297ba48"></script>
 <script src="portal.js?v=88edfb67"></script>
 </body>
 </html>

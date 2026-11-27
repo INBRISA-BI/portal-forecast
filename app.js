@@ -1269,13 +1269,36 @@ function leyendaSeries(series) {
   }).join('')}</span>`;
 }
 /* selector de producto junto al gráfico: nombre Brinova; con "Todos" arriba, también el distribuidor (todos sumados o uno) */
+/* 091-BUSCA (26-nov, pedido del usuario: "ese buscador que me dé el nombre interno de Brinova, que me permita buscar"): el selector muestra la
+   descripción del sell in (T_SKU, la caja de cajaDe) + el código, y un campo "Buscar producto" filtra por esa descripción, el nombre del portal,
+   los códigos y sus descripciones Brinova (todas las palabras, sin tildes). Enter elige la primera coincidencia. */
+const gfNomB = x => x.b ? x.b + ' · ' + x.c : x.n;
+function gfOps() {
+  const m = new Map();
+  P.filter(enDist).forEach(p => {
+    const b = String(descSI(p) || '').trim(), c = codSI(p) || '';
+    const x = m.get(p.grupo) || { g: p.grupo, n: p.nombre, b, c, k: 0, t: '' };
+    x.k++; x.t += ' ' + p.nombre + ' ' + b + ' ' + p.codigos.map(z => z.cod + ' ' + (z.descBrinova || z.desc || '')).join(' ');
+    m.set(p.grupo, x);
+  });
+  return [...m.values()].sort((a, b) => gfNomB(a).localeCompare(gfNomB(b), 'es'));
+}
+function gfVisibles(ops) {
+  const qs = sinTilde(S.gfQ || '').toLowerCase().split(/\s+/).filter(Boolean);
+  return qs.length ? ops.filter(x => x.g === S.prod || qs.every(q => sinTilde(x.t).toLowerCase().includes(q))) : ops;
+}
+function gfOpciones(ops) {
+  const vis = gfVisibles(ops), q = (S.gfQ || '').trim();
+  return `<option value="">Todo el mix${S.dist === 'TODOS' ? '' : ' de ' + esc(S.dist)}${q ? ' · ' + vis.length + (vis.length === 1 ? ' coincidencia' : ' coincidencias') : ''}</option>`
+    + vis.map(x => `<option value="${esc(x.g)}"${x.g === S.prod ? ' selected' : ''} title="${esc(x.n)}">${esc(gfNomB(x))}${S.dist === 'TODOS' && x.k > 1 ? ' · ' + x.k + ' distribuidores' : ''}</option>`).join('');
+}
 function pintarFiltroProd() {
   const el = $('#gf-bar'); if (!el) return;
   const foco = document.activeElement && document.activeElement.closest && document.activeElement.closest('#gf-bar') ? document.activeElement.id : null;
-  const m = new Map(); P.filter(enDist).forEach(p => { const x = m.get(p.grupo) || { g: p.grupo, n: p.nombre, k: 0 }; x.k++; m.set(p.grupo, x); });
-  const ops = [...m.values()].sort((a, b) => a.n.localeCompare(b.n, 'es'));
+  const ops = S._gfOps = gfOps();
   const enProd = S.prod ? new Set(P.filter(p => p.grupo === S.prod).map(p => p.clase)) : null, cls = S.prod && S.dist === 'TODOS' ? D.clases.filter(c => enProd.has(c)) : [];
-  el.innerHTML = `<label class="gf-f"><span>Producto</span><select id="gf-prod"><option value="">Todo el mix${S.dist === 'TODOS' ? '' : ' de ' + esc(S.dist)}</option>${ops.map(x => `<option value="${esc(x.g)}"${x.g === S.prod ? ' selected' : ''}>${esc(x.n)}${S.dist === 'TODOS' && x.k > 1 ? ' · ' + x.k + ' distribuidores' : ''}</option>`).join('')}</select></label>`
+  el.innerHTML = `<label class="gf-f gf-q"><span>Buscar producto</span><input id="gf-q" type="search" placeholder="Nombre Brinova o código" value="${esc(S.gfQ || '')}" autocomplete="off" spellcheck="false" enterkeyhint="search"></label>`
+    + `<label class="gf-f"><span>Producto (nombre Brinova)</span><select id="gf-prod">${gfOpciones(ops)}</select></label>`
     + (cls.length > 1 ? `<label class="gf-f"><span>Distribuidor</span><select id="gf-dist"><option value="TODOS">Todos sumados (${cls.length})</option>${cls.map(c => `<option value="${esc(c)}"${c === prodAlcance() ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : '')
     + (S.prod ? `<button type="button" class="chip" data-gfclr>Quitar filtro</button>` : '');
   if (foco) { const f = document.getElementById(foco); if (f) f.focus(); }
@@ -1285,7 +1308,8 @@ function pintarKpiFiltro() {
   if (!S.prod) { el.hidden = true; el.innerHTML = ''; return; }
   const sel = selGraf(), u = unidadGraf(sel);
   el.hidden = false;
-  el.innerHTML = `<span>Tarjetas y gráfico filtrados: <b>${esc(nombreProd(S.prod))}</b> · ${esc(alcanceTxt(sel))}${u.mixto ? ' · presentaciones distintas, sumadas en piezas y colones' : ''}</span><button type="button" class="chip" data-gfclr>Ver todo el mix</button>`;
+  const xB = (S._gfOps || gfOps()).find(o => o.g === S.prod);      // 091-BUSCA: nombre Brinova (sell in) + código
+  el.innerHTML = `<span>Tarjetas y gráfico filtrados: <b>${esc(xB ? gfNomB(xB) : nombreProd(S.prod))}</b> · ${esc(alcanceTxt(sel))}${u.mixto ? ' · presentaciones distintas, sumadas en piezas y colones' : ''}</span><button type="button" class="chip" data-gfclr>Ver todo el mix</button>`;
 }
 function marcarSelLista() {      // resalta en la lista agrupada el producto (y el distribuidor) que muestra el gráfico
   const a = prodAlcance();
@@ -1357,6 +1381,17 @@ document.addEventListener('click', ev => {
   if (sm) { const det = sm.parentElement, g = det.dataset.grupo, abre = !det.open; S.gpAbierto[g] = abre; if (abre) seleccionarProd(g, 'TODOS', true); return; }
   const fila = t.closest('.gp-d');
   if (fila && !t.closest('[data-p]')) { const g = fila.closest('details.gp').dataset.grupo; seleccionarProd(g, fila.dataset.gpcl, true); }
+});
+document.addEventListener('input', ev => {      // 091-BUSCA: filtra las opciones sin repintar el campo (no pierde el foco)
+  if (ev.target.id !== 'gf-q') return;
+  S.gfQ = ev.target.value;
+  const sel = $('#gf-prod'); if (sel) sel.innerHTML = gfOpciones(S._gfOps || gfOps());
+});
+document.addEventListener('keydown', ev => {
+  if (ev.target.id !== 'gf-q' || ev.key !== 'Enter') return;
+  ev.preventDefault();
+  const x = gfVisibles(S._gfOps || gfOps())[0];
+  if (x) seleccionarProd(x.g, 'TODOS', true);
 });
 document.addEventListener('change', ev => {
   if (ev.target.id === 'gf-prod') seleccionarProd(ev.target.value || null, 'TODOS');
