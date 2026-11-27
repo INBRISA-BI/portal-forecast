@@ -3481,7 +3481,30 @@ function r92Dist() {
       ${sv != null ? `<p class="small muted">Facturado por Brinova ${esc(rango(tri))}: US$${nf.format(sv)} (colones de DATA SELL IN ÷ tipo de cambio promedio de Softland de cada mes: ${tri.map(m => ml(m) + ' ' + nf2.format(usd.tcMes[m] || 0)).join(', ')}).</p>` : ''}
     </details>`;
   }).join('');
-  el.innerHTML = `<div class="panel-h"><h2 id="r92-dt">Inventario, tránsito y pedidos por distribuidor</h2>${r92Prueba()}</div>${filas || '<p class="prosa">Tus distribuidores no tienen órdenes de exportación ni parámetros de inventario.</p>'}`;
+  el.innerHTML = `<div class="panel-h"><h2 id="r92-dt">Inventario, tránsito y pedidos por distribuidor</h2>${r92Prueba()}</div>${r93Resumen()}${filas || '<p class="prosa">Tus distribuidores no tienen órdenes de exportación ni parámetros de inventario.</p>'}`;
+}
+/* 093-TRANSITO (26-nov, pedido del usuario: "quiero verlo en mi web"): tabla resumen arriba de los bloques por distribuidor con TODO lo que está
+   en tránsito (facturas que no habían llegado a la fecha del reporte de inventario, según Melissa o simulado por fechas), una fila por factura,
+   con total; los pedidos sin factura van en una línea aparte (no suman como inventario). Fuente: datos.transitoValidado (libro de validación). */
+function r93Resumen() {
+  if (!TV92 || !(TV92.ordenes || []).length) return '';
+  const tr = TV92.ordenes.filter(o => o.tipo !== 'PEDIDO' && (+o.pzTransito || 0) > 0).map(o => {
+    const f = (+o.piezas || 0) > 0 ? (+o.pzTransito || 0) / (+o.piezas) : 1;
+    return { o, cajas: (+o.cajas || 0) * f, pz: +o.pzTransito || 0, usd: (+o.montoUsd || 0) * f };
+  }).sort((a, b) => b.usd - a.usd);
+  const ped = TV92.ordenes.filter(o => o.tipo === 'PEDIDO');
+  if (!tr.length && !ped.length) return '';
+  const tot = tr.reduce((a, x) => ({ cajas: a.cajas + x.cajas, pz: a.pz + x.pz, usd: a.usd + x.usd }), { cajas: 0, pz: 0, usd: 0 });
+  const pc = ped.reduce((a, o) => ({ cajas: a.cajas + (+o.cajas || 0), usd: a.usd + (+o.montoUsd || 0) }), { cajas: 0, usd: 0 });
+  const sim = tr.some(x => (x.o.origen || '').toUpperCase() !== 'MELISSA');
+  const th = 'Distribuidor|Cliente|Factura|Facturada|Llegada estimada|Corte del inventario|Cajas|Piezas|US$|Respuesta'.split('|');
+  return `<div class="r93"><h3 style="margin:4px 0 6px">Producto en tránsito: ${tr.length} ${tr.length === 1 ? 'factura' : 'facturas'} · ${fN(tot.pz)} pz · US$${nf.format(Math.round(tot.usd))}</h3>
+    <p class="small muted" style="margin:0 0 6px">Facturas que todavía no habían llegado cuando cada distribuidor tomó la foto de su inventario. Llegada estimada = fecha de factura + días de embarque y tránsito (lead time del libro de parámetros)${sim ? '; las respuestas marcadas “simulado” salen de las fechas y las confirma Melissa' : ''}.</p>
+    <div class="tw" role="region" tabindex="0" aria-label="Producto en tránsito por distribuidor"><table class="tbl r93-t"><thead><tr>${th.map((h, i) => `<th${i < 3 || i === 9 ? ' class="l"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>
+    ${tr.map(x => `<tr><td class="l"><b>${esc(x.o.clase)}</b></td><td class="l">${esc(x.o.cliente || '')}</td><td class="l" title="${esc(x.o.orden)}">${esc(r92Corto(x.o.orden))}</td><td>${esc(fechaCorta(x.o.fechaFactura))}</td><td>${esc(fechaCorta(x.o.fechaLlegada))}</td><td>${esc(fechaCorta(x.o.fechaCorte))}</td><td>${fN(Math.round(x.cajas))}</td><td>${fN(x.pz)}</td><td>${nf.format(Math.round(x.usd))}</td><td class="l">${(x.o.origen || '').toUpperCase() === 'MELISSA' ? 'Melissa' : '<span class="muted">simulado</span>'}${x.o.recibida === 'PARCIAL' ? ' · parcial' : ''}</td></tr>`).join('')}
+    <tr class="tot"><td class="l"><b>Total</b></td><td></td><td></td><td></td><td></td><td></td><td><b>${fN(Math.round(tot.cajas))}</b></td><td><b>${fN(tot.pz)}</b></td><td><b>${nf.format(Math.round(tot.usd))}</b></td><td></td></tr>
+    </tbody></table></div>
+    ${ped.length ? `<p class="small muted" style="margin:6px 0 10px">Además ${ped.length} ${ped.length === 1 ? 'pedido' : 'pedidos'} sin facturar (${esc([...new Set(ped.map(o => o.clase))].join(', '))}): ${fN(pc.cajas)} cajas · US$${nf.format(Math.round(pc.usd))}. No suman como inventario: van como pedidos programados.</p>` : ''}</div>`;
 }
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-r92ver]'); if (!b) return;
