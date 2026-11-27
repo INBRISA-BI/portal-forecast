@@ -53,7 +53,7 @@ const sinTilde = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const KAMN = sinTilde(D.kam).toUpperCase();
 const CID = (D.kam || 'kam').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '') + '-' + D.ciclo;
 const ICO = { lock: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
-  graf: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16"/><path d="M5 15l4-5 4 3 6-7"/></svg>' };      // 090-CAPFILTRO: "Ver en el gráfico"
+  graf: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16"/><path d="M5 15l4-5 4 3 6-7"/></svg>' };      // 090-CAPFILTRO (094: la grilla ya no lo usa)
 
 /* ---------- calendario del ciclo (D.calendario del generador; si no viene, la misma regla: mes del ciclo en curso + 5 meses de captura) ---------- */
 const CAL = D.calendario || null;
@@ -267,7 +267,7 @@ try { const g = JSON.parse(localStorage.getItem(LS) || 'null'); if (g && g.unida
    S.capProd  = id del producto que se está capturando (gráfico compacto de la pestaña Capturar) */
 Object.assign(S, { prod: null, prodDist: 'TODOS', ocultas: [], agrupar: false, gpAbierto: {}, capProd: null, cgOculto: false });
 const LS_GRAF = 'portal-graf';
-try { const g = JSON.parse(localStorage.getItem(LS_GRAF) || 'null'); if (g) { if (Array.isArray(g.ocultas)) S.ocultas = g.ocultas.filter(k => typeof k === 'string'); S.agrupar = !!g.agrupar; S.cgOculto = !!g.cgOculto; } } catch (e) { }
+try { const g = JSON.parse(localStorage.getItem(LS_GRAF) || 'null'); if (g) { if (Array.isArray(g.ocultas)) S.ocultas = g.ocultas.filter(k => typeof k === 'string'); S.agrupar = !!g.agrupar; S.cgOculto = !!g.cgOculto; } if (!g || typeof g.cgOculto !== 'boolean') S.cgOculto = matchMedia('(max-width:760px)').matches; } catch (e) { }      // 094: sin preferencia, el gráfico de Capturar arranca plegado en el celular
 function guardarGraf() { try { localStorage.setItem(LS_GRAF, JSON.stringify({ ocultas: S.ocultas, agrupar: S.agrupar, cgOculto: S.cgOculto })); } catch (e) { } }
 const prodAlcance = () => S.dist !== 'TODOS' ? S.dist : (S.prodDist || 'TODOS');
 function selGraf() { if (!S.prod) return P.filter(enDist); const a = prodAlcance(); return P.filter(p => p.grupo === S.prod && (a === 'TODOS' || p.clase === a)); }
@@ -1032,9 +1032,9 @@ function dibujar(el) {
   /* 0.4.0: eje con TODOS los meses (marca por mes; texto de 3 letras o de 1 letra si no cabe), fila de años con separador,
      y marcas "última venta real" y "último mes pronosticado" (solo en gráficos con estados) */
   const marcas = !!o.estados && !o.dias;
-  const H = o.h || (marcas ? 300 : 260), L = o.izq || 56, R = 10, T = marcas ? 40 : 22, B = o.dias ? 26 : 44, ms = o.meses, n = ms.length, bw = (W - L - R) / n, id = 'g' + (++gid);
+  const H = o.h || (marcas ? 300 : 260), L = o.izq || 56, R = 10, T = marcas ? (o.compacto ? 30 : 40) : 22,      /* 094: o.compacto = gráfico bajo de Capturar (menos margen arriba y 2 marcas en el eje) */ B = o.dias ? 26 : 44, ms = o.meses, n = ms.length, bw = (W - L - R) / n, id = 'g' + (++gid);
   let mx = 0; o.series.forEach(s => ms.forEach(m => { const v = valS(s, m); if (v != null && v > mx) mx = v; }));
-  const st = pasoEje(mx * 1.05), top = Math.max(st, Math.ceil((mx * 1.05) / st) * st);
+  const st = pasoEje(mx * 1.05, o.compacto ? 2 : 4), top = Math.max(st, Math.ceil((mx * 1.05) / st) * st);
   const y = v => T + (H - T - B) * (1 - v / top), x = i => L + bw * (i + 0.5);
   let g = `<defs><pattern id="${id}h" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#F3F5F7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#E1E6EA" stroke-width="2"/></pattern></defs>`;
   if (o.estados) {      // bandas: mes en curso (rayado) y meses de captura (tinte)
@@ -1156,11 +1156,19 @@ function spark(p) {
 }
 
 /* ---------- encabezado y filtros ---------- */
+/* 094 (26-nov): la línea de BI decía "datos del 2026-11-24 12:30" con los datos regenerados el 26-nov 19:2x. Esa fecha es datos.json › generado
+   (cuándo corrió el generador), no la de la captura: la web lee datos.json de OneDrive, y la copia de OneDrive todavía era la del 24-nov
+   (la misma de backups/actualizacion_20261124_1225), o sea que OneDrive no había subido la corrida nueva. Ahora dice "datos generados el …",
+   cuándo llegó ese datos.json a OneDrive (portal.js › window.portalDatosEn) y, aparte, cuándo se guardó la captura por última vez. */
+const k94Fecha = f => { if (!f) return '—'; const t = String(f); if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(t)) return fechaCorta(t) + ' ' + t.slice(11, 16); const d = new Date(t); return isNaN(d) ? t : d.toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false }); };
+function pintarCiclo() {
+  const capEn = Object.values(remote || {}).map(r => r && r.en).filter(Boolean).sort().pop(), sub = window.portalDatosEn;
+  $('#t-ciclo').innerHTML = `Captura <b>${esc(rango(MK))}</b>${CAP_HASTA ? ` · cierra <b>${esc(fechaCorta(CAP_HASTA).slice(0, 5))}</b>` : ''}${VENCIDO ? ' · <b>captura cerrada</b>' : ''}`
+    + BI(` · ${nb('version', 'datos generados el ' + esc(k94Fecha(D.generado)))}${sub ? ' (en OneDrive desde el ' + esc(k94Fecha(sub)) + ')' : ''} · ${capEn ? 'captura guardada el ' + esc(k94Fecha(capEn)) : 'sin captura guardada'}${CAL && CAL.forzado ? ' · ciclo fijado por BI' : ''}${D.ordenesVivo ? ' · órdenes de exportación en vivo (ordenes.json' + (D.ordenesVivo.actualizado ? ', ' + esc(fechaCorta(D.ordenesVivo.actualizado)) + (D.ordenesVivo.por ? ' · ' + esc(D.ordenesVivo.por) : '') : '') + (D.ordenesVivo.sinProducto.length ? ' · ' + D.ordenesVivo.sinProducto.length + ' líneas sin producto en el portal' : '') + ')' : ''}`);
+}
 function pintarEncabezado() {
   $('#t-kam').textContent = D.kam;
-  /* 0.6.0: arriba solo una línea corta; la fecha de los datos queda para BI */
-  $('#t-ciclo').innerHTML = `Captura <b>${esc(rango(MK))}</b>${CAP_HASTA ? ` · cierra <b>${esc(fechaCorta(CAP_HASTA).slice(0, 5))}</b>` : ''}${VENCIDO ? ' · <b>captura cerrada</b>' : ''}`
-    + BI(` · ${nb('version', 'datos del ' + esc(D.generado || '—'))}${CAL && CAL.forzado ? ' · ciclo fijado por BI' : ''}${D.ordenesVivo ? ' · órdenes de exportación en vivo (ordenes.json' + (D.ordenesVivo.actualizado ? ', ' + esc(fechaCorta(D.ordenesVivo.actualizado)) + (D.ordenesVivo.por ? ' · ' + esc(D.ordenesVivo.por) : '') : '') + (D.ordenesVivo.sinProducto.length ? ' · ' + D.ordenesVivo.sinProducto.length + ' líneas sin producto en el portal' : '') + ')' : ''}`);
+  pintarCiclo();      /* 0.6.0: arriba solo una línea corta; la fecha de los datos queda para BI */
   const n = c => P.filter(p => c === 'TODOS' || p.clase === c).length;
   $('#f-dist').innerHTML = ['TODOS'].concat(D.clases).map(c =>
     `<button type="button" data-d="${esc(c)}" aria-pressed="${S.dist === c}">${c === 'TODOS' ? 'Todos' : esc(c)}<span class="c">${n(c)}</span></button>`).join('');
@@ -1168,9 +1176,9 @@ function pintarEncabezado() {
   $('#f-cat').innerHTML = '<option value="">Todas las categorías</option>' + cats.map(c => `<option${c === S.cat ? ' selected' : ''}>${esc(c)}</option>`).join('');
   const ch = [['todos', 'Todos'], ['alerta', 'Con alerta'], ['invbajo', 'Riesgo de quiebre'], ['invalto', 'Sobrestock o exceso'], ['dif', 'Lejos del pronóstico estimado'], ['cae', 'Venta cayendo'], ['aviso', 'Con aviso de captura']];
   $('#chips').innerHTML = ch.map(([k, t]) => `<button type="button" class="chip" data-chip="${k}" aria-pressed="${S.chip === k}">${t}</button>`).join('');
-  const ch2 = [['todos', 'Todos'], ['editados', 'Que cambié'], ['dif', 'Lejos del pronóstico estimado'], ['aviso', 'Con aviso']];
-  $('#chips2').innerHTML = ch2.map(([k, t]) => `<button type="button" class="chip" data-chip2="${k}" aria-pressed="${S.chip2 === k}">${t}</button>`).join('');
-  $('#f-capv').innerHTML = k82Boton('ant', '', true) + k82Boton('sig', '', true);      // 082-MESES: meses anteriores / siguientes (bloqueados) en todas las filas
+  const ch2 = [['todos', 'Todos', ''], ['editados', 'Que cambié', ''], ['dif', 'Lejos del est.', 'Lejos del pronóstico estimado (más de 50 %)'], ['aviso', 'Con aviso', '']];      // 094: textos cortos para que los filtros quepan en una fila
+  $('#chips2').innerHTML = ch2.map(([k, t, ti]) => `<button type="button" class="chip" data-chip2="${k}" aria-pressed="${S.chip2 === k}"${ti ? ` title="${ti}"` : ''}>${t}</button>`).join('');
+  $('#f-capv').innerHTML = k82Boton('ant', '', true, true) + k82Boton('sig', '', true, true);      // 082-MESES: meses anteriores / siguientes (bloqueados) en todas las filas
   document.querySelectorAll('#f-unidad button').forEach(b => b.setAttribute('aria-pressed', b.dataset.u === S.unidad));
   const fm = $('#f-mon'); if (fm) { fm.hidden = !MON.tc; fm.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', (b.dataset.mon === 'USD') === MON.usd)); }      // 092-USD: solo si datos.usd
   const t3 = $('#tab-c3'); if (t3) t3.hidden = !conExportacion();      // 0.5.0: vista 3D solo para exportación
@@ -1337,40 +1345,40 @@ function marcarSelLista() {      // resalta en la lista agrupada el producto (y 
 /* gráfico compacto de la pestaña Capturar: el producto que se está capturando; los puntos de "Forecast KAM vigente" se mueven con cada número (evento fcst:captura)
    090-CAPFILTRO (26-nov, pedido del usuario: "en la sección de capturar poder tocar el producto y que eso me filtre el gráfico superior"):
    sin producto elegido (S.capProd = null) muestra todo lo que lista la captura (distribuidor, búsqueda y estados) en colones; tocar un producto
-   (su fila de título o de código, su nombre o "Ver en el gráfico") lo filtra; "Quitar filtro" o tocar otra vez "Ver en el gráfico" vuelve a todo.
-   Escribir en una casilla sigue llevando el gráfico a ese producto, como en la 0.7.0. */
+   (094: su nombre o cualquier parte libre de su fila; ya no hay botón "Ver en el gráfico") lo filtra; "Quitar filtro" o tocar otra vez el producto
+   vuelve a todo. Escribir en una casilla sigue llevando el gráfico a ese producto, como en la 0.7.0. 094: más bajo (150 px) y plegable; la
+   preferencia queda en localStorage (portal-graf › cgOculto); sin preferencia, plegado en el celular. */
 function pintarCapGraf() {
   const box = $('#cap-graf'); if (!box) return;
   if (S.vista !== 'capturar' || !prodGrid.length) { box.hidden = true; return; }
   if (S.capProd && (!PID[S.capProd] || !enDist(PID[S.capProd]))) S.capProd = null;
   const p = S.capProd ? PID[S.capProd] : null, sel = p ? [p] : listaCaptura(); box.hidden = false;
-  $('#cg-t').textContent = p ? p.nombre + ' · ' + p.clase : 'Todo lo que estás capturando';
-  $('#cg-nota').textContent = p ? uNom(p) + ' · el punto naranja se mueve mientras escribes' : sel.length + (sel.length === 1 ? ' producto' : ' productos') + ' · ' + monTxt() + ' a precio de lista · toca un producto para verlo solo';
+  $('#cg-t').textContent = p ? nomCap(p) + ' · ' + p.clase : 'Todo lo que estás capturando';
+  $('#cg-t').title = $('#cg-nota').textContent = p ? uNom(p) + ' · el punto naranja se mueve mientras escribes' : sel.length + (sel.length === 1 ? ' producto' : ' productos') + ' · ' + monTxt() + ' a precio de lista · toca un producto para verlo solo';
   const b = $('#b-cg'); b.setAttribute('aria-expanded', String(!S.cgOculto)); b.textContent = S.cgOculto ? 'Mostrar gráfico' : 'Ocultar gráfico';
   const bq = $('#b-cgclr'); if (bq) bq.hidden = !p;
   box.classList.toggle('plegado', !!S.cgOculto);
-  marcarCapSel();
+  marcarCapSel(); k94CgCab(p);
   if (S.cgOculto) return;
   const todas = p ? seriesDe([p], p) : seriesDe(sel), desde = addM(MC, -12), cls = [...new Set(sel.map(x => x.clase))];
   const o = { meses: MH.concat(MF.filter(m => !MH.includes(m))).filter(m => m >= desde), series: todas.filter(s => !S.ocultas.includes(s.key)), estados: true,
     incompletos: p ? INCOMP[p.clase] || [] : cls.length === 1 ? incompletosDe(cls) : [], exclKam: exclKamDe(cls),
     eje: p ? fCx : fEje, tip: p ? (v => fN1(v) + ' ' + uNom(p)) : fC,
-    titulo: p ? 'Mes a mes de ' + p.nombre + ' en ' + p.clase + ', en ' + uNom(p) : 'Mes a mes de todo lo que estás capturando, en ' + monTxt(), izq: p ? 48 : 0, h: 210 };
+    titulo: p ? 'Mes a mes de ' + nomCap(p) + ' en ' + p.clase + ', en ' + uNom(p) : 'Mes a mes de todo lo que estás capturando, en ' + monTxt(), izq: p ? 48 : 0, h: matchMedia('(max-width:760px)').matches ? 140 : 124, compacto: true };      // 094: gráfico compacto (revisión: 124 px, sin quedar pegado arriba)
   grafico($('#ch-cap'), o);
-  $('#lg-cap').innerHTML = leyendaSeries(todas);
+  $('#lg-cap').innerHTML = leyendaSeries(todas.map(s => Object.assign({}, s, { nombre: K94_SER[s.key] || s.nombre })));      // 094: nombres cortos: la leyenda cabe en la línea del título
 }
-/* 090-CAPFILTRO: resalta en la grilla el producto del gráfico (fila de título y sus códigos) */
+/* 090-CAPFILTRO · 094: resalta en la grilla el producto del gráfico (su bloque .pr) y marca su botón (aria-pressed) */
 function marcarCapSel() {
-  $$('#grid tr.grp').forEach(r => { const on = r.dataset.g === S.capProd; r.classList.toggle('cg-on', on); const b = r.querySelector('[data-capsel]'); if (b) { b.setAttribute('aria-pressed', String(on)); b.title = on ? 'Quitar el filtro del gráfico' : 'Ver solo este producto en el gráfico de arriba'; } });
-  $$('#grid tr[data-gp]').forEach(r => r.classList.toggle('cg-on', r.dataset.gp === S.capProd));
+  GEL.forEach((e, id) => { const on = id === S.capProd; if (e.classList.contains('sel') !== on) { e.classList.toggle('sel', on); const b = e.querySelector('[data-capsel]'); if (b) b.setAttribute('aria-pressed', String(on)); } });
 }
 function selCap(id, avisar) {
   S.capProd = id && PID[id] ? id : null; pintarCapGraf();
   if (!avisar) return;
   const p = S.capProd ? PID[S.capProd] : null;
-  toast(p ? 'Gráfico: ' + p.nombre + ' · ' + p.clase : 'Gráfico: todo lo que estás capturando');
-  const box = $('#cap-graf');      // en celular el gráfico no queda fijo arriba: si no se ve, se lleva a la vista
-  if (box && !box.hidden && matchMedia('(max-width:760px)').matches) { const r = box.getBoundingClientRect(); if (r.top < 0 || r.top > innerHeight - 80) box.scrollIntoView({ block: 'start' }); }
+  toast(p ? 'Gráfico: ' + nomCap(p) + ' · ' + p.clase : 'Gráfico: todo lo que estás capturando');
+  const box = $('#cap-graf');      // en celular el gráfico no queda fijo arriba: si está abierto y no se ve, se lleva a la vista
+  if (box && !box.hidden && !S.cgOculto && matchMedia('(max-width:760px)').matches) { const r = box.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight - 80) box.scrollIntoView({ block: 'start' }); }
 }
 /* eventos del gráfico (se registran antes que los de app_3; usan atributos propios: data-serie, data-gfclr, data-gsel, data-agrupar, #gf-prod, #gf-dist, #b-cg) */
 document.addEventListener('click', ev => {
@@ -1386,12 +1394,12 @@ document.addEventListener('click', ev => {
     return;
   }
   if (t.closest('[data-gfclr]')) { seleccionarProd(null); return; }
-  /* 090-CAPFILTRO: tocar un producto de la grilla de captura filtra el gráfico de arriba; el nombre además abre el detalle (app_3) */
+  /* 090-CAPFILTRO · 094: tocar un producto de la grilla (su nombre o cualquier parte libre de la fila) filtra el gráfico; otra vez, lo quita.
+     El detalle se abre solo con el botón "Detalle" (data-p, app_3). */
   const cs = t.closest('[data-capsel]'); if (cs) { selCap(S.capProd === cs.dataset.capsel ? null : cs.dataset.capsel, true); return; }
   if (t.closest('#b-cgclr')) { selCap(null, true); return; }
-  const nmp = t.closest('#grid .nmp[data-p]'); if (nmp) selCap(nmp.dataset.p);
-  const fcap = !nmp && t.closest('#grid tr.grp, #grid tr[data-gp]');
-  if (fcap && !t.closest('button,input,textarea,select,a,label')) { const id = fcap.dataset.g || fcap.dataset.gp; if (id !== S.capProd) selCap(id, true); return; }
+  const fcap = t.closest('#grid .pr');
+  if (fcap && !t.closest('button,input,textarea,select,a,label,.unid-row')) { const id = fcap.dataset.g; selCap(S.capProd === id ? null : id, true); return; }
   if (t.closest('#b-cg')) { S.cgOculto = !S.cgOculto; guardarGraf(); pintarCapGraf(); return; }
   if (t.closest('[data-agrupar]')) { S.agrupar = !S.agrupar; guardarGraf(); pintarLista(); return; }
   const d = t.closest('[data-d]'); if (d) { S.prodDist = 'TODOS'; return; }      // cambio de distribuidor arriba: el alcance del producto vuelve a "todos"
@@ -1570,7 +1578,7 @@ function itemDesglose(p, u) {
     </div>`;
 }
 
-/* ---------- captura (formato formulario, de 25 en 25 productos) ---------- */
+/* ---------- captura (formato formulario; 094-CAPTURA: lista completa en una grilla, ver más abajo) ---------- */
 let filasGrid = [], prodGrid = [];
 /* 082-MESES · además de la captura, cada código muestra (bloqueados) los meses anteriores —los 12 antes del mes en curso y el mes en curso— y los
    siguientes —después de la captura hasta el último mes pronosticado—. Por defecto cerrados; un mismo estado para la grilla y el detalle, todas
@@ -1587,11 +1595,11 @@ function k82Guardar() { try { localStorage.setItem(LS_K82, JSON.stringify(K82));
 const k82Ms = k => k === 'ant' ? K82_ANT : K82_SIG;
 const k82Nom = k => (k === 'ant' ? 'Meses anteriores' : 'Meses siguientes') + ' (' + rango(k82Ms(k)) + ')';
 /* botón con el texto completo: barra de la grilla (pres = aria-pressed) y detalle (aria-expanded) */
-function k82Boton(k, cls, pres) {
+function k82Boton(k, cls, pres, corto) {      // 094: corto = "◀ Anteriores" / "Siguientes ▶" (el rango va oculto para el lector y en el title)
   if (!k82Ms(k).length) return '';
-  const on = K82[k], r = `<span class="k82-r">(${esc(rango(k82Ms(k)))})</span>`;
-  return `<button type="button" class="${cls} k82-b k82-${k}" data-k82="${k}" ${pres ? 'aria-pressed' : 'aria-expanded'}="${on}" title="${on ? 'Ocultar' : 'Ver'} estos meses (solo lectura)">`
-    + (k === 'ant' ? `<span aria-hidden="true">◀</span> Meses anteriores ${r}` : `Meses siguientes ${r} <span aria-hidden="true">▶</span>`) + '</button>';
+  const on = K82[k], r = corto ? `<span class="vh">(${esc(rango(k82Ms(k)))})</span>` : `<span class="k82-r">(${esc(rango(k82Ms(k)))})</span>`, nm = corto ? (k === 'ant' ? 'Anteriores' : 'Siguientes') : (k === 'ant' ? 'Meses anteriores' : 'Meses siguientes');
+  return `<button type="button" class="${cls} k82-b k82-${k}" data-k82="${k}" ${pres ? 'aria-pressed' : 'aria-expanded'}="${on}" title="${on ? 'Ocultar' : 'Ver'} estos meses (solo lectura)${corto ? ': ' + esc(k82Nom(k)) : ''}">`
+    + (k === 'ant' ? `<span aria-hidden="true">◀</span> ${nm} ${r}` : `${nm} ${r} <span aria-hidden="true">▶</span>`) + '</button>';
 }
 /* botón angosto en los costados del encabezado de la grilla */
 function k82BotonTh(k) {
@@ -1629,7 +1637,7 @@ function k82MesesDet(p, c) {
 function k82Ir(caja, modo) {
   if (!caja || caja.scrollWidth <= caja.clientWidth) return;
   const ini = caja.querySelector('[data-k82-ini]'), fin = caja.querySelector('[data-k82-fin]'); if (!ini || !fin) return;
-  const cr = caja.getBoundingClientRect(), fijo = caja.querySelector('thead .stk'), fw = fijo ? fijo.getBoundingClientRect().width : 0;
+  const cr = caja.getBoundingClientRect(), fijo = caja.querySelector('.cab .c-p'), fw = fijo ? fijo.getBoundingClientRect().width : 0;
   const ri = ini.getBoundingClientRect(), rf = fin.getBoundingClientRect();
   let d = 0;
   if (modo === 'mk') d = ri.left - cr.left - fw;
@@ -1672,42 +1680,184 @@ function celdaInput(p, c, m, pref) {
   return `<input class="inp${editado(c, m) ? ' ed' : ''}${k82SinGuardar(c, m) ? ' k82-sg' : ''}${unidCelda(p, c, m)}" id="${iid}" data-line="${esc(c.id)}" data-mes="${m}" inputmode="numeric" enterkeyhint="next" autocomplete="off"${editable(m) ? '' : ' readonly'} value="${kamU(c, m)}" aria-label="${esc(c.cod + ' ' + mll(m))}" aria-describedby="${hid}">`
     + `<span class="hint" id="${hid}">${al != null ? 'FCST est. ' + fN1(al) + ' · ' : ''}${sinF ? 'sin formulario previo' : 'ant ' + (vg == null ? '—' : fN(vg))}${ra != null ? '<br>año pas. ' + fN1(ra) : (aa != null ? '<br>SI año pas. ' + fN1(aa) : '')}${r92Pista(p, c, m)}</span>`;
 }
-function celdaCap(p, c, m) {
-  if (MK.includes(m)) return `<td class="st-abierto">${celdaInput(p, c, m, 'i')}</td>`;
-  return `<td class="st-${estadoMes(m)} k82-td">${k82Celda(p, c, m, 'i')}</td>`;      // 082-MESES: fuera de la captura, casilla bloqueada con sus pistas
+/* ---------- 094-CAPTURA (26-nov, pedido del usuario sobre "Capturar forecast": "toda esta interfaz está horrible, no debería decir 'ver
+   gráfico', solo debería uno tocar el producto y ya; no se ven bien los productos, la lista completa; hazlo bien moderno, eficiente, útil") ----------
+   La captura deja la tabla de 25 en 25 productos y pasa a una grilla CSS con roles de tabla (#grid role=table):
+   - LISTA COMPLETA: todos los productos del filtro (S.capLim = CAP_LIM). Cada producto es un bloque .pr con content-visibility: auto
+     (el navegador no pinta lo que está fuera de la pantalla) y, al escribir, solo se refresca el producto tocado (K94SUC + GEL).
+   - DENSA: un producto con un código = una fila (nombre Brinova = descripción del sell in del código, la unidad "cajas de 144 pz", código y
+     distribuidor); con varios códigos, una fila de título y una por código. Estado (Pendiente / En progreso / Cerrado) como ícono con texto
+     accesible; avisos como insignias cortas (.bd) con el texto completo en el title y para el lector de pantalla.
+   - ALINEADA: encabezado, filas y pie usan las mismas columnas (--cols, anchos fijos), así que cada mes del encabezado cae exacto sobre su casilla.
+     La página hace scroll natural: el encabezado de meses queda pegado debajo del gráfico compacto y el pie de totales abajo. Si no cabe a lo ancho
+     (meses anteriores o siguientes desplegados, ventana angosta), la lista pasa a un panel del alto disponible con scroll propio (.cap-x) y la
+     columna de producto queda fija a la izquierda (k94Modo).
+   - TOCAR EL PRODUCTO = FILTRAR EL GRÁFICO: el nombre es un botón (aria-pressed; Enter / Espacio) y tocar cualquier parte libre de la fila hace lo
+     mismo; tocar otra vez o "Quitar filtro" vuelve a todo. El detalle se abre con el botón "Detalle" (ⓘ), ya no al tocar el nombre.
+   - PISTAS SIN RUIDO: bajo cada casilla, una sola línea (el sugerido de la restricción "sug. 634 ▲" con su color, o "est. 230"); el resto
+     (pronóstico estimado, forecast anterior, año pasado, valor, sugerido y su porqué, aviso de unidades) en un tooltip al pasar el mouse o al
+     entrar a la casilla (k94Tip*); Alt+Enter abre "¿De dónde sale?". Reemplaza a la barra oscura de referencias (#insp).
+   - CELULAR (≤ 760 px): una tarjeta por producto; los meses en una franja horizontal desplazable, cada casilla con su mes; sin desborde.
+   No cambia el contrato de datos ni la captura: mismas casillas (.inp con data-line / data-mes), mismos ids de totales (t-, v-, f-) y los mismos
+   manejadores de app_3 (escribir, Guardar, cierre, avisos de unidades, solo lectura de BI). */
+const CAP_LIM = 5000;      // lista completa (antes 25 y "Mostrar 25 más")
+S.capLim = CAP_LIM;
+const GEL = new Map();      // id de producto → su bloque .pr en la grilla (se arma en pintarGrid)
+const K94SUC = new Set();   // productos tocados desde el último refresco ('*' = todos)
+let k94Min = 0;
+document.addEventListener('fcst:captura', ev => { const x = ev.detail || {}, L = x.clase ? LINES[x.clase + '__' + x.cod] : null; K94SUC.add(L ? L.p.id : '*'); });
+const nomCap = p => p.cap.length === 1 ? descB(p.cap[0]) : p.nombre;      // nombre Brinova: descripción del sell in del código (T_SKU)
+const k94Clase = p => S.dist === 'TODOS' && D.clases.length > 1 ? ' · ' + esc(p.clase) : '';
+const k94UPill = c => `<span class="upill ${c.pzPorU > 1 ? 'emp' : 'pz'}">${esc(uCod(c))}</span>`;
+const difCls = d => d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted';
+const ICO_INFO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.2"/></svg>';
+/* columnas: producto | (anteriores) | meses | (siguientes) | total | valor | acciones; los anchos fijos dan el mínimo para saber si cabe */
+function k94Cols(ms) {
+  const a = K82_ANT.length > 0, s = K82_SIG.length > 0;
+  return { cols: ['minmax(260px,1fr)', a ? '36px' : '', `repeat(${ms.length},94px)`, s ? '36px' : '', '92px', '112px', '96px'].filter(Boolean).join(' '),
+    min: 300 + (a ? 36 : 0) + (s ? 36 : 0) + ms.length * 94 + 92 + 112 + 96 };
 }
-function grupoCap(p, ncols) {
-  const f = fac(p), d = dif(p), a = alertas(p), av = avisosCaptura(p);
-  const on = S.capProd === p.id;      // 090-CAPFILTRO: botón para filtrar el gráfico de arriba con este producto
-  return `<tr class="grp${on ? ' cg-on' : ''}" data-g="${esc(p.id)}"><th class="stk" scope="rowgroup" colspan="2"><div class="gwrap"><button type="button" class="nmp" data-p="${esc(p.id)}">${esc(p.nombre)}</button><span class="small muted">${esc(p.clase)} · ${esc(fuenteProd(p))}</span><button type="button" class="cg-sel" data-capsel="${esc(p.id)}" aria-pressed="${on}" title="${on ? 'Quitar el filtro del gráfico' : 'Ver solo este producto en el gráfico de arriba'}">${ICO.graf}Ver en el gráfico</button>${k72Grupo(p)}</div></th>
-    <td colspan="${ncols}" style="text-align:left"><div class="gwrap small"><span>Pronóstico estimado <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>
-    ${a.slice(0, 2).map(([c, x]) => pill(c, x)).join('')}<span data-ga="${esc(p.id)}">${avisosPills(av)}</span>${r92Resumen(p)}</div></td></tr>`
-    + (() => { const u = unidHtml(p, 'g'); return `<tr class="unid-tr" data-gu-tr="${esc(p.id)}"${u ? '' : ' hidden'}><td colspan="${ncols + 2}" class="unid-td"><div class="unid-g" data-gu="${esc(p.id)}">${u}</div></td></tr>`; })();      // 090-UNIDADES: aviso de unidades con "Es correcto" / "Corregir"
+/* estado del producto en la fila: ícono con el texto para el lector de pantalla (k72Badges lo cambia mientras escribes) */
+const k94Pill = e => `<span class="k72-est k72-${e} k94-mini" title="${K72_EST[e]}">${K72_ICO[e]}<span class="vh">${K72_EST[e]}</span></span>`;
+const k94Estado = p => `<span class="k72-g" data-k72-g="${esc(p.id)}">${k94Pill(k72Estado(p))}</span>`;
+/* avisos del producto como insignias cortas: alertas (inventario, lejos del pronóstico, sin precio) y avisos de captura (x3, sin venta) */
+const K94_CORTO = [[/^Riesgo de quiebre/, 'Quiebre'], [/^Sobrestock/, 'Sobrestock'], [/^Exceso/, 'Exceso'], [/muy arriba/, 'Muy arriba del est.'], [/muy abajo/, 'Muy abajo del est.'], [/^Sin precio/, 'Sin precio'], [/dato viejo/, 'Corte viejo']];
+const k94Corto = x => { for (const [r, t] of K94_CORTO) if (r.test(x)) return t; return x.length > 18 ? x.slice(0, 17) + '…' : x; };
+function k94Badges(p) {
+  const b = alertas(p).map(([c, x]) => [c, k94Corto(x), x]);
+  const av = avisosCaptura(p), fu = av.filter(a => a[0] !== 'nota'), nt = av.filter(a => a[0] === 'nota');
+  if (fu.length) b.push([fu.some(a => a[0] === 'bad') ? 'bad' : 'warn', fu.length === 1 ? 'Aviso' : fu.length + ' avisos', fu.map(a => a[1]).join(' · ')]);
+  if (nt.length) b.push(['', 'Nota', nt.map(a => a[1]).join(' · ')]);
+  /* 094 (revisión): puntos de color con un símbolo (texto completo en el title y para el lector de pantalla); máximo 2 y "+N" */
+  const punto = ([c, t, x]) => `<span class="bd ${c || ''}" title="${esc(t + ': ' + x)}"><i aria-hidden="true">${K94_SIM[t] || (c === 'bad' || c === 'warn' ? '!' : 'i')}</i><span class="vh">${esc(t)}: ${esc(x)}</span></span>`;
+  const resto = b.slice(2);
+  return b.slice(0, 2).map(punto).join('') + (resto.length ? `<span class="bd mas" title="${esc(resto.map(([, t, x]) => t + ': ' + x).join(' · '))}">+${resto.length}<span class="vh"> avisos más: ${esc(resto.map(([, t, x]) => t + ': ' + x).join(' · '))}</span></span>` : '');
+}
+const K94_SIM = { 'Quiebre': '↓', 'Sobrestock': '↑', 'Exceso': '↑', 'Muy arriba del est.': '▲', 'Muy abajo del est.': '▼', 'Sin precio': '$', 'Corte viejo': '◷', 'Aviso': '!', 'Nota': 'i' };
+/* nombre Brinova con la marca como prefijo gris pequeño ("EL CONTRASTE" ESPONJA ANATÓMICA…): se lee lo que distingue al producto */
+const K94_MARCA = /^(EL CONTRASTE|EL CONTRSTE|CONTRASTE|ALABRILL|LIKE|ULTRALIM|ULTALIM)\s+(?=\S)/i;
+const k94Nombre = nm => { const m = String(nm).match(K94_MARCA); return m ? `<span class="mk">${esc(m[1])}</span> ${esc(nm.slice(m[0].length))}` : esc(nm); };
+/* detalle (ⓘ, junto al nombre) y cerrar / reabrir (columna de acciones) */
+const k94Det = p => `<button type="button" class="ib" data-p="${esc(p.id)}" aria-label="${esc('Detalle de ' + nomCap(p) + ' (' + p.clase + ')')}" title="Ver el detalle del producto">${ICO_INFO}</button>`;
+function k94Acc(p) {
+  const on = k72Cerrado(p), nm = nomCap(p) + ' (' + p.clase + ')', dis = k72Puede() ? '' : ` disabled title="${esc(k72PorQue())}"`;
+  return `<button type="button" class="btn k72-btn k94-b${on ? '' : ' k72-cerrar'}" data-k72="${esc(p.id)}" aria-label="${esc((on ? 'Reabrir ' : 'Cerrar producto ') + nm)}"${dis || ` title="${on ? 'Reabrir para cambiar sus números' : 'Cerrar producto: sus casillas quedan bloqueadas hasta reabrirlo'}"`}>${on ? 'Reabrir' : '<span aria-hidden="true">✓</span> Cerrar'}</button>`;
+}
+/* celda del producto: el nombre es el botón que filtra el gráfico */
+function k94CeldaProd(p, c) {      // c = null: fila de título (los avisos van junto al nombre; el resto en la celda de resumen)
+  const on = S.capProd === p.id, nm = nomCap(p), bds = `<span class="bds" data-ga="${esc(p.id)}">${k94Badges(p)}</span>`;
+  const meta = c ? `${k94UPill(c)}<span class="p2t">${esc(c.cod)}${k94Clase(p)}</span>${bds}` : '';
+  return `<div class="c-p" role="rowheader"><div class="p1">${k94Estado(p)}<button type="button" class="pr-sel" data-capsel="${esc(p.id)}" aria-pressed="${on}" title="${esc(nm + (p.nombre !== nm ? ' · ' + p.nombre : '') + ' · ' + p.clase + ' · ' + fuenteProd(p) + '. Tócalo para verlo solo en el gráfico')}">${k94Nombre(nm)}</button>${k94Det(p)}${c ? '' : bds}</div>${meta ? `<div class="p2">${meta}</div>` : ''}</div>`;
+}
+/* pista de una línea bajo la casilla: el sugerido de la restricción (código principal) con su estado, o el pronóstico estimado, o el anterior */
+const R94S = { exceso: '✕', recortado: '▲', corto: '▼', coincide: '✓', sinPedido: '' };
+const r92Cod = (p, c) => c.cod === p.principal || (!p.cap.some(x => x.cod === p.principal) && c === p.cap[0]);
+const k94SugTxt = (v, e) => `sug. ${fN1(v)}${e && R94S[e] ? ' ' + R94S[e] : ''}<span class="vh">${e ? ' · ' + esc(R92E[e][1]) : ''}</span>`;
+function k94Pista(p, c, m) {
+  const f = r92(p) && r92Mes(p, m), u = c.pzPorU || 1;
+  if (f && !f.enCurso && r92Cod(p, c)) { const e = r92Estado(p, m); return `<span class="r92-h e-${e}" data-r92h="${esc(p.id)}" data-m="${m}" data-corto>${k94SugTxt(f.sugeridoPz / u, e)}</span>`; }
+  if (c.cod === p.principal && c.pzPorU && p.alg[m] != null) return 'est. ' + fN1((p.alg[m] || 0) / u);
+  const vg = vig(c, m); return vg != null ? 'ant ' + fN(vg) : '&nbsp;';
+}
+function k94Celda(p, c, m) {
+  const iid = 'g-' + sid(c.id) + '-' + m, hid = iid + '-h';
+  return `<div class="c-m st-abierto" role="cell" data-c="${esc(c.id)}" data-m="${m}"><span class="mlab" aria-hidden="true">${ml(m)}</span>`
+    + `<input class="inp${editado(c, m) ? ' ed' : ''}${k82SinGuardar(c, m) ? ' k82-sg' : ''}${unidCelda(p, c, m)}" id="${iid}" data-line="${esc(c.id)}" data-mes="${m}" inputmode="numeric" enterkeyhint="next" autocomplete="off"${editable(m) ? '' : ' readonly'} value="${kamU(c, m)}" aria-label="${esc(c.cod + ' ' + mll(m))}" aria-describedby="${hid}">`
+    + `<span class="hint" id="${hid}">${k94Pista(p, c, m)}</span></div>`;
+}
+/* 082-MESES en la grilla: mes fuera de la captura, bloqueado, con una sola pista (real, oficial o estimado) */
+function k94Fuera(p, c, m) {
+  const e = estadoMes(m), pc = c.cod === p.principal && c.pzPorU, u = c.pzPorU || 1, v = k82Valor(c, m);
+  const pista = e === 'real' && pc ? 'real ' + fN1((p.real[m] || 0) / u) : e === 'curso' ? (OFICIAL_CURSO ? 'oficial' : 'vigente') : pc && p.alg[m] != null ? 'est. ' + fN1(p.alg[m] / u) : '&nbsp;';
+  const que = m < MC ? 'forecast registrado en su momento' : e === 'curso' ? 'forecast ' + (OFICIAL_CURSO ? 'oficial' : 'vigente') + ' del mes en curso' : 'formulario vigente';
+  return `<div class="c-m st-${e} k82-td" role="cell" data-c="${esc(c.id)}" data-m="${m}"><span class="mlab" aria-hidden="true">${ml(m)} ${ICO.lock}</span><span class="k82-w" title="${esc('Bloqueado: ' + que)}">${ICO.lock}<input class="k82-in" readonly tabindex="-1" value="${v == null ? '' : esc(v)}" placeholder="—" aria-label="${esc(c.cod + ' ' + mll(m) + ': ' + que + ', bloqueado')}"></span><span class="hint">${pista}</span></div>`;
+}
+function k94Celdas(p, c, ms) {
+  const lad = k => k82Ms(k).length ? '<div class="c-l" aria-hidden="true"></div>' : '';
+  return `${lad('ant')}<div class="ms">${ms.map(m => MK.includes(m) ? k94Celda(p, c, m) : k94Fuera(p, c, m)).join('')}</div>${lad('sig')}`;
+}
+/* pedido sugerido del producto (suma de la captura) con el peor estado; abre el cálculo mes a mes del detalle */
+function k94Sug(p, u) {
+  const r = r92(p); if (!r) return '';
+  const sug = MK.reduce((a, m) => a + ((r92Mes(p, m) || {}).sugeridoCajas || 0), 0), es = MK.map(m => r92Estado(p, m));
+  const e = ['exceso', 'corto', 'recortado', 'coincide'].find(x => es.includes(x)) || '', cj = u && r.pzPorCaja !== u ? ' cj' : '';
+  return `<button type="button" class="lnk r92-h e-${e}" data-r92ver="${esc(p.id)}" data-r92tot="${esc(p.id)}" title="${esc('Pedido sugerido ' + fN(sug) + ' cajas en ' + rango(MK) + (e ? ' · ' + R92E[e][1] : '') + '. Toca para ver el cálculo mes a mes.')}">sug. ${fN(sug)}${cj}${e && R94S[e] ? ' ' + R94S[e] : ''}<span class="vh"> cajas${e ? ' · ' + esc(R92E[e][1]) : ''}</span></button>`;
+}
+/* segunda línea del total de un producto de un código: el sugerido (si hay restricción) o el pronóstico estimado con la diferencia */
+function k94TotSub(p, c) {
+  if (r92(p)) return k94Sug(p, c.pzPorU || 1);
+  const d = dif(p); return `est. ${fN1(algPz6(p) / (c.pzPorU || 1))} <span class="${difCls(d)}">${flecha(d)}${fP(d)}</span>`;
+}
+/* fila de título: productos con varios códigos o cerrados y plegados */
+function k94Titulo(p, pl) {
+  const f = fac(p), d = dif(p);
+  const sum = pl ? `<span class="muted">${p.cap.length === 1 ? esc(p.cap[0].cod) : p.cap.length + ' códigos'}${k94Clase(p)} · ${esc(k72CerradoTxt(p))} · ${p.cap.length === 1 ? 'código oculto' : 'códigos ocultos'}: toca Reabrir para cambiarlo</span>`
+    : `<span class="muted">${p.cap.length} códigos${k94Clase(p)}</span><span>Pronóstico estimado <b>${fN1(algPz6(p) / f)}</b> · tú <b data-gt="${esc(p.id)}">${fN1(kamPz6(p) / f)}</b> ${esc(uNom(p))} en ${esc(rango(MK))} <span class="${difCls(d)}" data-gd="${esc(p.id)}">${flecha(d)}${fP(d)}</span></span>${k94Sug(p, null)}`;
+  return `<div class="cr tit" role="row">${k94CeldaProd(p, null)}<div class="c-sum" role="cell">${sum}</div><div class="c-a" role="cell">${k94Acc(p)}</div></div>`;
+}
+function k94Fila(p, c, ms, multi) {
+  const pr = precioU(p, c), id = esc(c.id);
+  const cp = multi ? `<div class="c-p k94-cod" role="rowheader"><div class="p1"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}</div><div class="p2">${k94UPill(c)}<span class="p2t" title="${esc(descB(c))}">${esc(descB(c))}</span></div></div>` : k94CeldaProd(p, c);
+  return `<div class="cr${multi ? ' k94-cod' : ' uno'}" role="row" data-gp="${esc(p.id)}">${cp}${k94Celdas(p, c, ms)}`
+    + `<div class="c-t" role="cell"><b id="t-${id}"></b><small${multi ? '' : ` data-gtt="${esc(p.id)}"`}>${multi ? 'sell in 12M ' + fN(c.u12) : k94TotSub(p, c)}</small></div>`
+    + `<div class="c-v" role="cell"><b id="v-${id}"></b><small>${pr != null ? fC2(pr) + ' c/u' : pill('bad', 'sin precio')}</small></div><div class="c-a" role="cell">${multi ? '' : k94Acc(p)}</div></div>`;
+}
+function k94Prod(p, ms) {
+  const pl = k72Plegado(p), multi = p.cap.length > 1, u = unidHtml(p, 'g');
+  p.cap.forEach(c => filasGrid.push(c.id));      // los plegados siguen sumando en el pie
+  let h = `<div class="pr${S.capProd === p.id ? ' sel' : ''}${pl ? ' plegado' : ''}" data-g="${esc(p.id)}" role="rowgroup">`;
+  if (pl || multi) h += k94Titulo(p, pl);
+  if (!pl) p.cap.forEach(c => { h += k94Fila(p, c, ms, multi); });
+  h += `<div class="unid-row" role="row" data-gu-tr="${esc(p.id)}"${u ? '' : ' hidden'}><div class="unid-g" role="cell" data-gu="${esc(p.id)}">${u}</div></div>`;      // 090-UNIDADES
+  return h + '</div>';
 }
 function pintarGrid() {
-  const L = listaCaptura(), ms = mesesCaptura(), lim = L.slice(0, S.capLim);
-  filasGrid = []; prodGrid = lim;
-  /* 082-MESES: columnas angostas a los costados de los meses con el botón de anteriores / siguientes; los meses fuera de la captura llevan candado */
-  const lad = (k, x) => k82Ms(k).length ? x : '', nLad = (K82_ANT.length ? 1 : 0) + (K82_SIG.length ? 1 : 0), tdL = lad('ant', '<td class="k82-lado"></td>'), tdR = lad('sig', '<td class="k82-lado"></td>');
-  let h = `<thead><tr><th class="stk l" scope="col">Producto / código</th><th scope="col">Precio lista</th>${lad('ant', `<th scope="col" class="k82-lado">${k82BotonTh('ant')}</th>`)}${ms.map(m => { const e = estadoMes(m), k = MK.includes(m); return `<th scope="col" class="st-${e}"${m === MK[0] ? ' data-k82-ini' : ''}${m === MK[MK.length - 1] ? ' data-k82-fin' : ''}>${ml(m)}<small>${k ? '' : ICO.lock + ' '}${EST_C[e]}</small></th>`; }).join('')}${lad('sig', `<th scope="col" class="k82-lado">${k82BotonTh('sig')}</th>`)}<th scope="col">Total captura</th><th scope="col">Valor</th></tr></thead><tbody>`;
-  lim.forEach(p => {
-    h += grupoCap(p, ms.length + 2 + nLad);
-    p.cap.forEach(c => {
-      filasGrid.push(c.id);
-      if (k72Plegado(p)) return;      // 072-CIERRE: producto cerrado y plegado = solo su fila de título (sigue sumando en el pie)
-      const pr = precioU(p, c);
-      h += `<tr data-gp="${esc(p.id)}"${S.capProd === p.id ? ' class="cg-on"' : ''}><th class="stk codr" scope="row"><b>${esc(c.cod)}</b>${c.cod === p.principal ? ' ' + pill('acc', 'principal') : ''}<small>${esc(descB(c))}</small><small>En ${esc(uCod(c))} · sell in 12M ${fN(c.u12)}</small></th><td>${pr != null ? fC2(pr) : pill('bad', 'sin precio')}</td>`;
-      h += tdL; ms.forEach(m => { h += celdaCap(p, c, m); }); h += tdR;
-      h += `<td class="num" id="t-${esc(c.id)}"></td><td class="num" id="v-${esc(c.id)}"></td></tr>`;
-    });
-  });
-  if (!L.length) h += `<tr><td class="l" colspan="${4 + ms.length + nLad}">Ningún producto cumple el filtro.</td></tr>`;
-  h += `</tbody><tfoot><tr><th class="stk l" scope="row" colspan="2">Total en ${monTxt()} (lista)${lim.length < L.length ? ' · productos mostrados' : ''}</th>${tdL}${ms.map(m => `<td id="f-${m}"></td>`).join('')}${tdR}<td></td><td id="f-tot"></td></tr></tfoot>`;
-  $('#grid').innerHTML = h;
+  const L = listaCaptura(), ms = mesesCaptura(), lim = L.slice(0, S.capLim), cc = k94Cols(ms), g = $('#grid');
+  filasGrid = []; prodGrid = lim; k94Min = cc.min; tipOcultar(0);
+  g.style.setProperty('--cols', cc.cols); g.style.setProperty('--minw', cc.min + 'px');
+  const lad = (k, x) => k82Ms(k).length ? x : '';
+  let h = `<div class="cr cab" role="row"><div class="c-p" role="columnheader"><span class="k94-cpt">Producto <span class="muted">· ${L.length}</span></span><span class="k94-cgx" id="k94-cgx"></span></div>${lad('ant', `<div class="c-l" role="columnheader">${k82BotonTh('ant')}</div>`)}<div class="ms">`
+    + ms.map(m => { const e = estadoMes(m), k = MK.includes(m); return `<div class="c-m st-${e}" role="columnheader"${m === MK[0] ? ' data-k82-ini' : ''}${m === MK[MK.length - 1] ? ' data-k82-fin' : ''}>${ml(m)}<small>${k ? '' : ICO.lock + ' '}${EST_C[e]}</small></div>`; }).join('')
+    + `</div>${lad('sig', `<div class="c-l" role="columnheader">${k82BotonTh('sig')}</div>`)}<div class="c-t" role="columnheader">Total</div><div class="c-v" role="columnheader">Valor</div><div class="c-a" role="columnheader"><span class="vh">Acciones</span></div></div>`;
+  lim.forEach(p => { h += k94Prod(p, ms); });
+  if (!L.length) h += '<div class="vacio" role="row"><span role="cell">Ningún producto cumple el filtro.</span></div>';
+  h += `<div class="cr pie" role="row"><div class="c-p" role="rowheader">Total en ${monTxt()} (lista)${lim.length < L.length ? ' · productos mostrados' : ''}</div>${lad('ant', '<div class="c-l" aria-hidden="true"></div>')}<div class="ms">${ms.map(m => `<div class="c-m" role="cell" id="f-${m}"></div>`).join('')}</div>${lad('sig', '<div class="c-l" aria-hidden="true"></div>')}<div class="c-t" role="cell"></div><div class="c-v" role="cell" id="f-tot"></div><div class="c-a" aria-hidden="true"></div></div>`;
+  g.innerHTML = h;
+  GEL.clear(); g.querySelectorAll('.pr').forEach(e => GEL.set(e.dataset.g, e)); K94SUC.clear();
   $('#grid-mas').innerHTML = L.length > S.capLim ? `<div class="mas"><button type="button" class="btn" data-capmas>Mostrar ${Math.min(25, L.length - S.capLim)} productos más (${L.length - S.capLim} restantes)</button></div>` : '';
   filasGrid.forEach(totFila); pieGrid(); pintarResumenCap();
+  k94Modo();
   k82Inicio([$('#grid-box .cap-wrap')]);      // 082-MESES: con los anteriores desplegados, se arranca en el primer mes de captura
 }
+/* ¿cabe a lo ancho? Si no, panel del alto disponible con scroll propio y columna de producto fija (.cap-x); en celular, tarjetas */
+function k94Modo() {
+  const w = $('#grid-box .cap-wrap'); if (!w) return;
+  const x = !matchMedia('(max-width:760px)').matches && k94Min > w.clientWidth + 1;
+  w.classList.toggle('cap-x', x);
+  if (x) w.setAttribute('tabindex', '0'); else w.removeAttribute('tabindex');
+}
+(() => {
+  const box = document.getElementById('grid-box'), g = document.getElementById('grid'); if (!box || !g) return;
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (S.vista === 'capturar') k94Modo(); }).observe(box);
+  /* celular con los meses anteriores desplegados: cada franja arranca en el primer mes de captura cuando su tarjeta entra a la pantalla */
+  g.addEventListener('contentvisibilityautostatechange', ev => {
+    if (ev.skipped || !K82.ant || !matchMedia('(max-width:760px)').matches) return;
+    ev.target.querySelectorAll('.ms').forEach(s => { if (s.scrollLeft < 8) { const i = s.querySelector('.st-abierto'); if (i) s.scrollLeft = i.offsetLeft - s.offsetLeft - 10; } });
+  });
+})();
+const K94_SER = { si: 'Sell in', real: 'Venta real', kp: 'Forecast registrado', alg: 'Pronóstico estimado', kam: 'Tu forecast' };
+/* 094 (revisión): el gráfico ya no queda pegado arriba; el encabezado pegado de la lista dice qué muestra el gráfico y lleva a él */
+function k94CgCab(p) {
+  const x = $('#k94-cgx'); if (!x) return;
+  x.innerHTML = p ? `<button type="button" class="chip k94-cgf" data-k94-cg title="Ir al gráfico">Gráfico: ${esc(nomCap(p))}</button><button type="button" class="ib" data-k94-clr aria-label="Quitar el filtro del gráfico" title="Quitar filtro"><span aria-hidden="true">✕</span></button>`
+    : `<button type="button" class="lnk k94-cgv" data-k94-cg>Ver gráfico <span aria-hidden="true">↑</span></button>`;
+}
+document.addEventListener('click', ev => {
+  const t = ev.target.closest && ev.target.closest('[data-k94-cg],[data-k94-clr]'); if (!t) return;
+  if ('k94Clr' in t.dataset) { selCap(null, true); return; }
+  if (S.cgOculto) { S.cgOculto = false; guardarGraf(); pintarCapGraf(); }
+  const g = $('#cap-graf'); if (g) { g.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); const bb = $('#b-cg'); if (bb) bb.focus({ preventScroll: true }); }
+});
 function totFila(id) {
   const { p, c } = LINES[id], t = document.getElementById('t-' + id), v = document.getElementById('v-' + id);
   if (!t) return;
@@ -1724,25 +1874,103 @@ function pieGrid() {
   });
   const ft = $('#f-tot'); if (ft) ft.textContent = fC(tot);
 }
+/* refresco de UN producto mientras se escribe (lo llama refrescarGrupo de app_3): solo dentro de su bloque */
+function k94Refrescar(p) {
+  const g = GEL.get(p.id); if (!g || !g.isConnected) return;
+  const f = fac(p), d = dif(p);
+  const gt = g.querySelector('[data-gt]'); if (gt) gt.textContent = fN1(kamPz6(p) / f);
+  const gd = g.querySelector('[data-gd]'); if (gd) { gd.textContent = flecha(d) + fP(d); gd.className = difCls(d); }
+  const ga = g.querySelector('[data-ga]'); if (ga) ga.innerHTML = k94Badges(p);
+  const gtt = g.querySelector('[data-gtt]'); if (gtt) gtt.innerHTML = k94TotSub(p, p.cap[0]);
+  const st = g.querySelector('.c-sum [data-r92tot]'); if (st) st.outerHTML = k94Sug(p, null);
+}
 function pintarResumenCap() {
   const sel = P.filter(enDist), r = resumen(sel);
   const nEd = sel.reduce((a, p) => a + p.codigos.filter(c => MK.some(m => editado(c, m))).length, 0);
-  $('#cap-intro').innerHTML = `<p><b>Tu forecast de ${esc(rango(MK))}</b> en la unidad de tu formulario · viene de tu formulario vigente · los cambios se guardan al tocar <b>Guardar</b>.</p>
-    <p class="small muted"><b>FCST est.</b> pronóstico estimado · <b>ant</b> forecast anterior · <b>año pas.</b> venta del mismo mes · <b>real</b>, <b>reg.</b>, <b>SI</b>: venta real, forecast registrado y sell in de meses cerrados</p>
-    <p class="small muted solo-movil">En el celular conviene capturar desde el detalle: toca el nombre del producto.</p>
-    ${VENCIDO ? `<p class="aviso"><b>La captura cerró el ${esc(fechaCorta(CAP_HASTA))}.</b> Las casillas quedan de solo lectura.</p>` : ''}`;
-  $('#cap-res').innerHTML = `<span>Total ${esc(rango(MK))}: ${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span>Pronóstico estimado: ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}">${flecha(r.difK)}${fP(r.difK)} contra el pronóstico estimado</span><span class="muted">${nEd} ${nEd === 1 ? 'código cambiado' : 'códigos cambiados'}</span>${unidContador()}`;
+  const ci = $('#cap-intro');      // 094 (revisión): la explicación va plegada en "¿Cómo funciona?"; arriba queda una sola línea
+  if (ci && !ci.dataset.ok) { ci.dataset.ok = '1'; ci.innerHTML = `<p>Escribe tu forecast de ${esc(rango(MK))} en la unidad de tu formulario (la de cada código: "cajas de 144 pz"). Lo escrito queda en un borrador hasta que tocas <b>Guardar</b> en la barra de abajo.</p>
+    <ul><li><b>Toca un producto</b> (su nombre o cualquier parte libre de la fila) para verlo solo en el gráfico; tócalo otra vez para volver a todo.</li><li><b>ⓘ</b> abre su ficha: gráfico, inventario, cálculo del pedido sugerido.</li>
+    <li>Bajo cada casilla va una pista: <b>sug.</b> = pedido sugerido según inventario y tránsito (▲ pusiste más, ▼ menos, ✓ coincide, ✕ no conviene pedir) o <b>est.</b> = pronóstico estimado. Pasa el mouse o entra a la casilla para ver el resto; Alt+Enter: ¿de dónde sale?</li>
+    <li>Los puntos de color junto al código son avisos (quiebre, sobrestock, lejos del pronóstico…); el texto completo sale al pasar el mouse.</li><li>Cuando termines un producto, <b>Cerrar</b>: sus casillas quedan bloqueadas hasta reabrirlo.</li></ul>`; }
+  $('#cap-res').innerHTML = `<b>Tu forecast ${esc(rango(MK))}</b><span>${nb('k_kam', '<b>' + fC(r.kam) + '</b>')}</span><span class="muted k94-sec">pronóstico estimado ${nb('k_alg', fC(r.alg))}</span><span class="${r.difK != null && Math.abs(r.difK) > 0.3 ? 'warn' : 'muted'}" title="contra el pronóstico estimado">${flecha(r.difK)}${fP(r.difK)}</span><span class="muted k94-sec">${nEd} ${nEd === 1 ? 'cambiado' : 'cambiados'}</span>${VENCIDO ? `<span class="pill bad">Captura cerrada el ${esc(fechaCorta(CAP_HASTA))}: solo lectura</span>` : ''}`;
+  const ku = $('#k94-unid'); if (ku) ku.innerHTML = unidContador();      // 094: contador de avisos fuera de la línea de resumen (en el celular va junto a "¿Cómo funciona?")
   pintarCapGraf();      // 070-GRAFICO: gráfico compacto del producto que se captura (pintarGrid y refrescarResumen pasan por aquí)
   k72PintarAvance();      // 072-CIERRE: avance por distribuidor, estados y bloqueo de casillas de productos cerrados
 }
-function inspector(id, m) {
-  const el = $('#insp'); if (!el || !LINES[id]) return;
-  const { p, c } = LINES[id], u = c.pzPorU || 1, aa = addM(m, -12), pr = precioU(p, c), pc = c.cod === p.principal && c.pzPorU, un = plural(presDe(c)), s = siU(p, c, aa);
-  const it = (k, v) => `<span class="it"><span>${k}</span><b>${v}</b></span>`;
-  el.classList.remove('vacio');
-  el.innerHTML = `${it(esc(c.cod) + ' · ' + ml(m), fN(kamU(c, m)) + ' ' + esc(un) + ' = ' + fN(kamU(c, m) * u) + ' pz')}${it('Forecast anterior', vig(c, m) == null ? '—' : fN(vig(c, m)))}${it('Pronóstico estimado', pc ? fN1((p.alg[m] || 0) / u) : 'ver ' + esc(p.principal))}${it('Real ' + ml(aa), pc ? fN1((p.real[aa] || 0) / u) : fN1((p.real[aa] || 0) / u) + ' (producto)')}${it('Sell in ' + ml(aa), s == null ? '—' : fN1(s))}${it('Valor', fC(kamU(c, m) * (pr || 0)))}
-    ${r92Mes(p, m) && !r92Mes(p, m).enCurso ? `<span class="it r92-it"><span>Pedido sugerido</span><b>${esc(r92Texto(p, m, true))}</b></span>` : ''}<button type="button" class="btn" data-exp="cel" data-c="${esc(c.id)}" data-m="${m}">¿De dónde sale?</button>`;
+/* ---------- 094 · tooltip de la casilla: uno solo para toda la grilla (popover manual en la capa superior; sin Popover API, un div fijo).
+   Se abre al pasar el mouse (con retardo) o al entrar a la casilla, se puede recorrer con el mouse (WCAG 1.4.13), Esc lo cierra y se
+   reposiciona al desplazar. inspector(id, m) lo llaman los manejadores de app_3 al enfocar y al escribir. ---------- */
+const TIP = { el: null, t: 0, h: 0, ancla: null, modo: '' };
+function tipEl() {
+  if (TIP.el) return TIP.el;
+  const t = document.createElement('div'); t.id = 'cap-tip'; t.className = 'cap-tip'; t.setAttribute('role', 'tooltip');
+  if (Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'popover')) t.setAttribute('popover', 'manual'); else t.hidden = true;
+  t.addEventListener('pointerenter', () => clearTimeout(TIP.h));
+  t.addEventListener('pointerleave', () => { if (TIP.modo === 'hover') tipOcultar(160); });
+  t.addEventListener('mousedown', ev => { if (TIP.modo === 'foco') ev.preventDefault(); });      // tocar el botón no le quita el foco a la casilla
+  document.body.appendChild(t); return (TIP.el = t);
 }
+const tipAbierto = () => !!TIP.el && (TIP.el.hasAttribute('popover') ? TIP.el.matches(':popover-open') : !TIP.el.hidden);
+function tipMostrar(ancla, html, modo) {
+  const det = $('#det'); if (det && det.open) return;
+  const t = tipEl(); t.innerHTML = html; TIP.ancla = ancla; TIP.modo = modo; clearTimeout(TIP.h);
+  if (!tipAbierto()) { if (t.hasAttribute('popover')) { try { t.showPopover(); } catch (e) { } } else t.hidden = false; }
+  tipPosicion();
+}
+function tipPosicion() {
+  const t = TIP.el, a = TIP.ancla; if (!t || !tipAbierto()) return;
+  if (!a || !a.isConnected) { tipOcultar(0); return; }
+  const r = a.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight, mg = 8, arriba = matchMedia('(pointer:coarse)').matches;
+  let y = arriba ? r.top - h - 6 : r.bottom + 6;
+  if (!arriba && y + h > innerHeight - mg) y = r.top - h - 6;
+  if (arriba && y < mg) y = r.bottom + 6;
+  const x = Math.max(mg, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - mg));
+  t.style.left = Math.round(x) + 'px'; t.style.top = Math.round(Math.max(mg, Math.min(y, innerHeight - h - mg))) + 'px';
+}
+function tipOcultar(ms) {
+  clearTimeout(TIP.h); clearTimeout(TIP.t);
+  const f = () => { const t = TIP.el; if (!t) return; if (t.hasAttribute('popover')) { try { t.hidePopover(); } catch (e) { } } else t.hidden = true; TIP.ancla = null; TIP.modo = ''; };
+  if (ms) TIP.h = setTimeout(f, ms); else f();
+}
+function tipHtml(id, m) {
+  const { p, c } = LINES[id], u = c.pzPorU || 1, e = estadoMes(m), aa = addM(m, -12), pr = precioU(p, c), pc = c.cod === p.principal && c.pzPorU, un = plural(presDe(c)), cap = MK.includes(m);
+  const v = cap ? kamU(c, m) : k82Valor(c, m), vg = vig(c, m), s = siU(p, c, aa);
+  const fila = (k, x) => `<div class="tr"><span>${k}</span><b>${x}</b></div>`;
+  let h = `<div class="tt">${esc(nomCap(p))}<small>${esc(c.cod)} · ${esc(mll(m))} · ${esc(EST_C[e])}</small></div>`;
+  h += fila(cap ? 'Tu forecast' : m < MC ? 'Forecast registrado' : 'Forecast vigente', v == null ? '—' : fN(v) + ' ' + esc(un) + (u > 1 && v ? ' = ' + fN(v * u) + ' pz' : ''));
+  h += fila('Pronóstico estimado', pc && p.alg[m] != null ? fN1(p.alg[m] / u) : pc ? '—' : 'en ' + esc(p.principal));
+  if (cap) h += fila('Forecast anterior', vg == null ? (CAL && (CAL.mesesSinFormulario || []).includes(m) ? 'sin formulario previo' : '—') : fN(vg));
+  if (e === 'real') { if (pc) h += fila('Venta real', fN1((p.real[m] || 0) / u)); const s0 = siU(p, c, m); if (s0 != null) h += fila('Sell in', fN1(s0)); }
+  if (e === 'curso') { const av = c.avanceU != null ? c.avanceU : (pc && p.avanceSellInPz && p.avanceSellInPz[m] != null ? p.avanceSellInPz[m] / u : null); if (av != null) h += fila('Facturado al ' + esc(fechaCorta(D.avanceHasta).slice(0, 5)), fN1(av)); }
+  const ra = pc && p.real[aa] != null ? fN1(p.real[aa] / u) + ' venta' : '';
+  if (ra || s != null) h += fila('Año pasado (' + esc(ml(aa)) + ')', [ra, s != null ? fN1(s) + ' sell in' : ''].filter(Boolean).join(' · '));
+  if (pr != null && v) h += fila('Valor', fC(v * pr) + ` <small>(${fC2(pr)} c/u)</small>`);
+  const f = r92(p) && r92Mes(p, m);
+  if (f && !f.enCurso && r92Cod(p, c)) { const es = r92Estado(p, m); h += `<p class="tp e-${es}"><b>Pedido sugerido ${fN1(f.sugeridoPz / u)}${es ? ' · ' + esc(R92E[es][1].toLowerCase()) : ''}.</b> ${esc(r92Texto(p, m, true))}</p>`; }
+  const a = cap && unidPend(p).find(x => x.m === m); if (a) h += `<p class="tp bad">${esc(textoUnid(p, [a]))}</p>`;
+  if (cap) h += `<div class="tpie"><button type="button" class="lnk" data-exp="cel" data-c="${esc(c.id)}" data-m="${m}">¿De dónde sale?</button><span class="muted">Alt+Enter</span></div>`;
+  return h;
+}
+function inspector(id, m) {      // al enfocar o escribir en una casilla de la grilla: tooltip junto a la casilla
+  const i = document.activeElement, cel = i && i.closest ? i.closest('#grid .c-m') : null; if (!cel || !LINES[id]) return;
+  clearTimeout(TIP.t); tipMostrar(cel, tipHtml(id, m), 'foco');
+}
+document.addEventListener('pointerover', ev => {
+  if (ev.pointerType && ev.pointerType !== 'mouse') return;
+  const t = ev.target, cel = t.closest && t.closest('#grid .c-m[data-c]');
+  if (!cel) { if (TIP.modo === 'hover' && !(t.closest && t.closest('#cap-tip'))) tipOcultar(160); return; }
+  if (TIP.modo === 'foco' || TIP.ancla === cel) { clearTimeout(TIP.h); return; }
+  clearTimeout(TIP.t); clearTimeout(TIP.h);
+  TIP.t = setTimeout(() => { if (cel.isConnected && cel.matches(':hover') && TIP.modo !== 'foco') tipMostrar(cel, tipHtml(cel.dataset.c, cel.dataset.m), 'hover'); }, tipAbierto() ? 60 : 380);
+});
+document.addEventListener('focusout', ev => { if (TIP.modo !== 'foco') return; const r = ev.relatedTarget; if (r && r.closest && r.closest('#cap-tip')) return; tipOcultar(0); });
+document.addEventListener('keydown', ev => {
+  const t = ev.target;
+  if (ev.key === 'Escape' && tipAbierto() && t.closest && t.closest('#grid')) { tipOcultar(0); return; }
+  if (ev.key === 'Enter' && ev.altKey && t.classList && t.classList.contains('inp') && t.closest('#grid')) { ev.preventDefault(); ev.stopImmediatePropagation(); tipOcultar(0); abrirExp(EXP.cel({ c: t.dataset.line, m: t.dataset.mes })); }
+});
+addEventListener('scroll', () => { if (TIP.modo === 'hover') tipOcultar(0); else if (TIP.modo === 'foco') requestAnimationFrame(tipPosicion); }, { capture: true, passive: true });
+addEventListener('resize', () => { if (tipAbierto()) tipPosicion(); }, { passive: true });
 
 /* ---------- cómo se calcula: textos según las fuentes del KAM ---------- */
 const lista = xs => xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1];
@@ -2908,10 +3136,7 @@ document.addEventListener('click', ev => {
 });
 $('#det').addEventListener('close', () => k82Barra());      // la barra vuelve a la página
 function refrescarGrupo(p) {
-  const f = fac(p), d = dif(p);
-  $$('[data-gt]').forEach(e => { if (e.dataset.gt === p.id) e.textContent = fN1(kamPz6(p) / f); });
-  $$('[data-gd]').forEach(e => { if (e.dataset.gd === p.id) { e.textContent = flecha(d) + fP(d); e.className = d != null && Math.abs(d) > 0.3 ? 'warn' : 'muted'; } });
-  $$('[data-ga]').forEach(e => { if (e.dataset.ga === p.id) e.innerHTML = avisosPills(avisosCaptura(p)); });
+  k94Refrescar(p);      // 094: totales, insignias y sugerido del producto, solo dentro de su bloque de la grilla (antes recorría toda la página)
   unidRepintar(p);      // 090-UNIDADES: el aviso de unidades se enciende o se apaga mientras escribes
   r92Refrescar(p);      // 092: estado del pedido sugerido contra lo que escribes
 }
@@ -2920,19 +3145,20 @@ function unidPintarEn(el, p, ctx) {
   if (!el) return;
   const mot = el.querySelector('.unid-mot'), v = mot ? mot.value : null, foco = mot && document.activeElement === mot;
   const h = unidHtml(p, ctx); if (el.innerHTML !== h) el.innerHTML = h;
-  const tr = el.closest('tr.unid-tr'); if (tr) tr.hidden = !h;
+  const tr = el.closest('.unid-row, tr.unid-tr'); if (tr) tr.hidden = !h;
   const m2 = el.querySelector('.unid-mot'); if (m2 && v != null) { m2.value = v; if (foco) m2.focus(); }
 }
 function unidRepintar(p) {
-  $$('[data-gu]').forEach(e => { if (e.dataset.gu === p.id) unidPintarEn(e, p, 'g'); });
+  const g = GEL.get(p.id), raices = [g, S.abierto === p.id ? $('#det') : null].filter(Boolean);      // 094: solo el bloque del producto y el detalle
+  if (g) g.querySelectorAll('[data-gu]').forEach(e => unidPintarEn(e, p, 'g'));
   if (S.abierto === p.id) unidPintarEn($('#det-unid'), p, 'd');
-  $$('.inp').forEach(x => { const L = LINES[x.dataset.line]; if (L && L.p === p) x.classList.toggle('unid-on', !!unidCelda(p, L.c, x.dataset.mes)); });
+  raices.forEach(r => r.querySelectorAll('.inp').forEach(x => { const L = LINES[x.dataset.line]; if (L && L.p === p) x.classList.toggle('unid-on', !!unidCelda(p, L.c, x.dataset.mes)); }));
   const ct = $('#unid-cont-w'); if (ct) ct.outerHTML = unidContador();
 }
 const unidProdsKam = () => P.filter(p => enDist(p) && p.cap.length);
 function unidContador() {
   const n = unidProdsKam().filter(p => unidPend(p).length).length;
-  return `<span id="unid-cont-w">${n ? `<button type="button" class="chip unid-cont" data-unid-ir title="Ir al primer producto con un posible error de unidades">${n} ${n === 1 ? 'aviso' : 'avisos'} de unidades por revisar</button>` : ''}</span>`;
+  return `<span id="unid-cont-w">${n ? `<button type="button" class="chip unid-cont" data-unid-ir title="Ir al primer producto con un posible error de unidades">${n} ${n === 1 ? 'aviso' : 'avisos'}<span class="k94-lgo"> de unidades por revisar</span></button>` : ''}</span>`;
 }
 function unidConfirmar(p, ctx) {
   const mot = (($(`#unid-mot-${sid(p.id)}-${ctx}`) || {}).value || '').trim().slice(0, 140), en = new Date().toISOString(), pend = unidPend(p);
@@ -2959,7 +3185,7 @@ function unidIr() {
   if (!p) return;
   const i = L.indexOf(p); if (i >= S.capLim) S.capLim = Math.ceil((i + 1) / 25) * 25;
   pintarGrid(); selCap(p.id);
-  const tr = document.querySelector(`#grid tr[data-gu-tr="${CSS.escape(p.id)}"]`);
+  const tr = document.querySelector(`#grid [data-gu-tr="${CSS.escape(p.id)}"]`);
   if (tr) { tr.scrollIntoView({ block: 'center' }); const b = tr.querySelector('[data-unid-ok]'); if (b) b.focus({ preventScroll: true }); }
 }
 document.addEventListener('click', ev => {
@@ -2997,7 +3223,10 @@ function refrescarResumen() {        // repinta solo lo visible
   tRef = setTimeout(() => {
     if (S.vista === 'tendencia') { pintarHorizonte(); pintarKpis(); pintarTotal(); pintarLista(); }
     if (S.vista === 'distribuidores') pintarDistribuidores();
-    if (S.vista === 'capturar') { filasGrid.forEach(totFila); pieGrid(); pintarResumenCap(); prodGrid.forEach(refrescarGrupo); }
+    if (S.vista === 'capturar') {      // 094: solo los productos tocados desde el último refresco (K94SUC); sin marca, todos
+      const todos = !K94SUC.size || K94SUC.has('*'), ps = todos ? prodGrid : prodGrid.filter(p => K94SUC.has(p.id)); K94SUC.clear();
+      filasGrid.forEach(totFila); pieGrid(); pintarResumenCap(); ps.forEach(refrescarGrupo);
+    }
     if (S.abierto) refrescarDetalle(PID[S.abierto]);
   }, 250);
 }
@@ -3035,7 +3264,7 @@ document.addEventListener('click', ev => {
   const t = ev.target.closest('button,[data-rs-ir]'); if (!t) return;
   const ds = t.dataset;
   if (ds.exp) { const fn = EXP[ds.exp]; if (fn) abrirExp(fn(ds)); return; }
-  if (ds.d) { S.dist = ds.d; S.lim = 60; S.capLim = 25; if (S.dist !== 'TODOS') { C3.clase = S.dist; C3.prod = ''; C3.idx = 0; } pintarEncabezado(); vista(S.vista); return; }
+  if (ds.d) { S.dist = ds.d; S.lim = 60; S.capLim = CAP_LIM; if (S.dist !== 'TODOS') { C3.clase = S.dist; C3.prod = ''; C3.idx = 0; } pintarEncabezado(); vista(S.vista); return; }
   if (ds.v) { vista(ds.v); return; }
   /* 0.5.0 · contenedores 3D */
   if (ds.c3tipo) { C3.tipo = ds.c3tipo; C3.idx = 0; pintarContenedor(); return; }
@@ -3047,7 +3276,7 @@ document.addEventListener('click', ev => {
   if (ds.u) { S.unidad = ds.u; guardarLocal(); pintarEncabezado(); vista(S.vista); if (S.abierto) pintarDetalle(PID[S.abierto]); return; }
   if (ds.mon) { monSet(ds.mon); try { localStorage.setItem(LS_MON, ds.mon); } catch (e) { } pintarEncabezado(); vista(S.vista); if (S.abierto) pintarDetalle(PID[S.abierto]); return; }      // 092-USD
   if (ds.chip) { S.chip = ds.chip; S.lim = 60; pintarEncabezado(); pintarLista(); return; }
-  if (ds.chip2) { S.chip2 = ds.chip2; S.capLim = 25; pintarEncabezado(); pintarGrid(); return; }
+  if (ds.chip2) { S.chip2 = ds.chip2; S.capLim = CAP_LIM; pintarEncabezado(); pintarGrid(); return; }
   if (ds.capv) { S.capVista = ds.capv; pintarEncabezado(); pintarGrid(); return; }
   if ('mas' in ds) { S.lim += 60; pintarLista(); return; }
   if (ds.mascat != null) { S.limCat[ds.mascat] = (S.limCat[ds.mascat] || 40) + 60; pintarLista(); return; }
@@ -3094,7 +3323,7 @@ document.addEventListener('toggle', ev => { if (ev.target.classList && ev.target
 document.addEventListener('input', ev => {
   const el = ev.target;
   if (el.id === 'q') { S.q = el.value; S.lim = 60; debounce(pintarLista); return; }
-  if (el.id === 'q2') { S.q2 = el.value; S.capLim = 25; debounce(pintarGrid); return; }
+  if (el.id === 'q2') { S.q2 = el.value; S.capLim = CAP_LIM; debounce(pintarGrid); return; }
   if (el.dataset.nota) { const id = el.dataset.nota; local[id] = local[id] || { meses: {} }; local[id].nota = el.value; el.classList.toggle('k82-sg', k82Pend(id) > 0); k82Cambio(); return; }
   if (el.classList.contains('inp')) {
     const id = el.dataset.line, m = el.dataset.mes;
@@ -3102,9 +3331,9 @@ document.addEventListener('input', ev => {
     const raw = el.value.replace(/[^\d]/g, ''); if (raw !== el.value) el.value = raw;
     const v = raw === '' ? 0 : parseInt(raw, 10);
     setKam(id, m, v);
-    $$('.inp').forEach(o => { if (o !== el && o.dataset.line === id && o.dataset.mes === m) o.value = v; });
+    const gem = $$(`.inp[data-line="${CSS.escape(id)}"][data-mes="${m}"]`).filter(o => o !== el);      // 094: la misma casilla en el detalle (sin recorrer las 2 000 de la grilla)
     el.classList.toggle('ed', editado(LINES[id].c, m)); el.classList.toggle('k82-sg', k82SinGuardar(LINES[id].c, m));
-    $$('.inp').forEach(o => { if (o !== el && o.dataset.line === id && o.dataset.mes === m) o.classList.toggle('k82-sg', el.classList.contains('k82-sg')); });
+    gem.forEach(o => { o.value = v; o.classList.toggle('ed', el.classList.contains('ed')); o.classList.toggle('k82-sg', el.classList.contains('k82-sg')); });
     totFila(id); pieGrid(); refrescarGrupo(LINES[id].p); refrescarResumen();
     if (el.closest('#v-capturar')) inspector(id, m);
   }
@@ -3150,8 +3379,9 @@ if (typeof HTMLDialogElement !== 'undefined' && !('closedBy' in HTMLDialogElemen
    pintarDistribuidores (app_2). Evento propio: fcst:cierre {clase, id, listo}. */
 const K72 = { filtro: 'todos', plegar: true, forzar: false, ultimo: null, ro: false };
 const LS_K72 = 'portal-k72-' + CID;
-try { const g = JSON.parse(localStorage.getItem(LS_K72) || 'null'); if (g && typeof g.plegar === 'boolean') K72.plegar = g.plegar; } catch (e) { }
-function k72GuardarPref() { try { localStorage.setItem(LS_K72, JSON.stringify({ plegar: K72.plegar })); } catch (e) { } }
+K72.avPl = matchMedia('(max-width:760px)').matches;      // 094: avance plegado (solo la barra); sin preferencia, plegado en el celular
+try { const g = JSON.parse(localStorage.getItem(LS_K72) || 'null'); if (g && typeof g.plegar === 'boolean') K72.plegar = g.plegar; if (g && typeof g.avPl === 'boolean') K72.avPl = g.avPl; } catch (e) { }
+function k72GuardarPref() { try { localStorage.setItem(LS_K72, JSON.stringify({ plegar: K72.plegar, avPl: K72.avPl })); } catch (e) { } }
 const K72_EST = { pendiente: 'Pendiente', progreso: 'En progreso', cerrado: 'Cerrado' };
 const K72_ICO = {
   pendiente: '<svg class="k72-i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 1.9"/></svg>',
@@ -3198,23 +3428,32 @@ function k72CeldaDist(cl) {
   return `<span class="k72-dc">${n.cerrado === n.total ? K72_ICO.cerrado : ''}${n.cerrado} de ${n.total} cerrados</span>${k72Barra(n)}<small class="muted" style="display:block">${k72Resto(n)}</small>`;
 }
 /* franja de avance de la pestaña Capturar (también repinta estados, bloqueo de casillas y el botón de cierre total) */
-function k72PintarAvance() {
+function k72PintarAvance(ligero) {      // 094: ligero = mientras se escribe (sin recorrer estados y casillas de toda la grilla)
   const box = $('#k72-avance');
   if (box) {
     const tot = k72Cuenta(k72Prods()), sel = k72Cuenta(k72Prods(S.dist)), cls = D.clases.filter(cl => k72Prods(cl).length);
     const fil = [['todos', 'Todos', sel.total], ['pendiente', 'Pendientes', sel.pendiente], ['progreso', 'En progreso', sel.progreso], ['cerrado', 'Cerrados', sel.cerrado]];
     const listo = envio && envio.estado === 'listo';
-    box.innerHTML = `<div class="panel-h"><h2 id="k72-t">Avance del forecast</h2><span class="nota">${tot.cerrado} de ${tot.total} productos cerrados${S.dist !== 'TODOS' ? ' · ' + esc(S.dist) + ': ' + sel.cerrado + ' de ' + sel.total : ''}</span>
-      <span class="der"><button type="button" class="btn pri" data-k72-sig>Siguiente pendiente</button></span></div>
-      ${listo ? `<p class="k72-ok">${K72_ICO.cerrado}<span>Forecast marcado como listo${envio.en ? ' el ' + esc(k72Cuando(envio.en)) : ''}${envio.por ? ' · ' + esc(k72Quien(envio.por)) : ''}</span></p>` : ''}
-      ${cls.length > 1 ? `<div class="k72-dists" role="group" aria-label="Avance por distribuidor; toca uno para ver solo ese">${cls.map(cl => { const n = k72Cuenta(k72Prods(cl)), on = S.dist === cl;
-        return `<button type="button" class="k72-d${n.cerrado === n.total ? ' completo' : ''}" data-d="${esc(on ? 'TODOS' : cl)}" data-k72-cl="${esc(cl)}" aria-pressed="${on}"><span class="k72-dn">${n.cerrado === n.total ? K72_ICO.cerrado : ''}<b>${esc(cl)}</b><span>${n.cerrado} de ${n.total} cerrados</span></span>${k72Barra(n)}<span class="k72-dd">${k72Resto(n)}</span></button>`; }).join('')}</div>` : `<div class="k72-uno">${k72Barra(sel)}<span class="k72-dd">${k72Resto(sel)}</span></div>`}
-      <div class="k72-fil"><div class="seg" role="group" aria-label="Mostrar productos">${fil.map(([k, t, n]) => `<button type="button" data-k72-f="${k}" aria-pressed="${K72.filtro === k}">${k === 'todos' ? '' : K72_ICO[k]}${t}<span class="c">${n}</span></button>`).join('')}</div>
-        <button type="button" class="chip" data-k72-plegar aria-pressed="${K72.plegar}" title="Los productos cerrados pasan al final de la lista y se ve solo su título">Cerrados al final y ocultos</button></div>`;
+    /* 094 (revisión): una sola fila: plegar · barra total y "x de y cerrados" · chips por distribuidor con su x/y (desplazables) · Siguiente pendiente.
+       Los filtros Pendientes / En progreso / Cerrados pasan a la fila de búsqueda (#k72-fil). */
+    const fb = document.activeElement && document.activeElement.closest && document.activeElement.closest('#k72-avance') ? document.activeElement.dataset : null;
+    box.innerHTML = `<button type="button" class="k94-avt" data-k94-av aria-label="Avance por distribuidor" aria-expanded="${!K72.avPl}" aria-controls="k94-avc" title="${K72.avPl ? 'Ver el avance por distribuidor' : 'Ocultar el avance por distribuidor'}"><span aria-hidden="true">${K72.avPl ? '▸' : '▾'}</span> <span id="k72-t">Avance</span></button>
+      <span class="k94-avb">${k72Barra(tot)}<span class="k94-avn"><b>${tot.cerrado} de ${tot.total}</b><span class="k94-lgo"> cerrados</span><span class="muted"> · ${tot.progreso} en progreso</span></span></span>
+      ${listo ? `<span class="pill good k94-listo" title="${esc('Forecast marcado como listo' + (envio.en ? ' el ' + k72Cuando(envio.en) : '') + (envio.por ? ' · ' + k72Quien(envio.por) : ''))}">${K72_ICO.cerrado} Listo</span>` : ''}
+      <span class="k94-avc scrollx" id="k94-avc"${K72.avPl ? ' hidden' : ''} role="group" aria-label="Avance por distribuidor; toca uno para ver solo ese">${cls.length > 1 ? cls.map(cl => { const n = k72Cuenta(k72Prods(cl)), on = S.dist === cl;
+        return `<button type="button" class="k72-d k94-d${n.cerrado === n.total ? ' completo' : ''}" data-d="${esc(on ? 'TODOS' : cl)}" data-k72-cl="${esc(cl)}" aria-pressed="${on}" title="${esc(cl + ': ' + n.cerrado + ' de ' + n.total + ' cerrados · ' + k72Resto(n))}">${n.cerrado === n.total ? K72_ICO.cerrado : ''}${esc(cl)} <b>${n.cerrado}/${n.total}</b>${k72Barra(n)}</button>`; }).join('') : ''}<button type="button" class="chip k94-pl" data-k72-plegar aria-pressed="${K72.plegar}" title="Los productos cerrados pasan al final de la lista y se ve solo su título">Cerrados al final</button></span>
+      <button type="button" class="btn pri k94-sig" data-k72-sig>Siguiente pendiente</button>`;
+    if (fb) { const sel2 = fb.k72Cl ? `[data-k72-cl="${CSS.escape(fb.k72Cl)}"]` : 'k94Av' in fb ? '[data-k94-av]' : 'k72Plegar' in fb ? '[data-k72-plegar]' : 'k72Sig' in fb ? '[data-k72-sig]' : null; const e2 = sel2 && box.querySelector(sel2); if (e2) e2.focus({ preventScroll: true }); }
+    const ff = $('#k72-fil');
+    if (ff) { const fa = document.activeElement && document.activeElement.closest && document.activeElement.closest('#k72-fil') ? document.activeElement.dataset.k72F : null;
+      ff.innerHTML = fil.map(([k, t, n]) => `<button type="button" data-k72-f="${k}" aria-pressed="${K72.filtro === k}">${k === 'todos' ? '' : K72_ICO[k]}${t}<span class="c">${n}</span></button>`).join('');
+      if (fa) { const e3 = ff.querySelector(`[data-k72-f="${fa}"]`); if (e3) e3.focus({ preventScroll: true }); } }
   }
-  k72Badges(); k72Bloquear(); k72PintarListo();
+  if (!ligero) { k72Badges(); k72Bloquear(); }
+  k72PintarListo();
 }
-function k72Badges() { $$('[data-k72-g]').forEach(el => { const p = PID[el.dataset.k72G]; if (!p) return; const e = k72Estado(p), s = el.querySelector('.k72-est'); if (s && !s.classList.contains('k72-' + e)) s.outerHTML = k72Pill(e); }); }
+function k72Badge(el) { const p = PID[el.dataset.k72G]; if (!p) return; const e = k72Estado(p), s = el.querySelector('.k72-est'); if (s && !s.classList.contains('k72-' + e)) s.outerHTML = s.classList.contains('k94-mini') ? k94Pill(e) : k72Pill(e); }      // 094: en la grilla, solo el ícono
+function k72Badges(id) { (id ? $$(`[data-k72-g="${CSS.escape(id)}"]`) : $$('[data-k72-g]')).forEach(k72Badge); }
 function k72Bloquear() {
   const ro = k72SoloLectura();
   $$('.inp[data-line]').forEach(el => { const L = LINES[el.dataset.line]; if (!L) return; const c = k72Cerrado(L.p), v = ro || c || !editable(el.dataset.mes); if (el.readOnly !== v) el.readOnly = v; el.classList.toggle('k72-ro', c); });
@@ -3227,7 +3466,7 @@ function k72PintarListo() {
   const b = $('#b-listo'); if (!b) return;
   const n = k72Cuenta(k72Prods()), listo = envio && envio.estado === 'listo';
   b.classList.add('k72-listo');
-  b.innerHTML = `<span>${listo ? 'Volver a marcar como listo' : 'Marcar forecast como listo'}</span><small class="k72-av">${n.cerrado} de ${n.total} productos cerrados</small>`;
+  b.innerHTML = `<span>${listo ? 'Volver a marcar como listo' : 'Marcar <span class="k94-lgo">forecast </span>como listo'}</span><small class="k72-av">${n.cerrado} de ${n.total} productos cerrados</small>`;
   if (!k72Puede()) b.disabled = true;
 }
 /* cerrar (on) o reabrir un producto: todas sus líneas de captura, con fecha y persona */
@@ -3253,7 +3492,7 @@ function k72Despues(p, on, btn) {
   if (enDet) { const b = document.querySelector(`#det [data-k72="${CSS.escape(p.id)}"]`); if (b) b.focus(); return; }
   if (enGrid) {
     const q = sig || p, b = document.querySelector(`#grid [data-k72="${CSS.escape(q.id)}"]`);
-    if (b) { b.focus({ preventScroll: true }); b.closest('tr').scrollIntoView({ block: 'nearest' }); }
+    if (b) { b.focus({ preventScroll: true }); b.closest('.pr').scrollIntoView({ block: 'nearest' }); }
     if (sig) { S.capProd = sig.id; pintarCapGraf(); }
   }
 }
@@ -3263,7 +3502,7 @@ function k72Siguiente(desde) {
   let L = k72Base();
   if (!L.some(p => !k72Cerrado(p)) && S.dist !== 'TODOS') {
     const otro = P.filter(p => p.cap.length && !k72Cerrado(p)).sort((a, b) => a.clase.localeCompare(b.clase))[0];
-    if (otro) { toast(`${S.dist}: todo cerrado. Sigue ${otro.clase}`); S.dist = otro.clase; S.capLim = 25; pintarEncabezado(); L = k72Base(); desde = null; }
+    if (otro) { toast(`${S.dist}: todo cerrado. Sigue ${otro.clase}`); S.dist = otro.clase; S.capLim = CAP_LIM; pintarEncabezado(); L = k72Base(); desde = null; }
   }
   const i = desde ? L.findIndex(p => p.id === desde) : -1;
   const orden = i >= 0 ? L.slice(i + 1).concat(L.slice(0, i)) : L;      // después del actual y, al final, vuelve al principio
@@ -3278,9 +3517,9 @@ function k72IrA(p) {
   const ix = listaCaptura().indexOf(p); if (ix >= S.capLim) S.capLim = Math.ceil((ix + 1) / 25) * 25;
   if ($('#det').open || movil) { vista(S.vista); abrir(p.id); return; }
   if (S.vista !== 'capturar') vista('capturar'); else pintarGrid();
-  const fila = document.querySelector(`#grid tr.grp[data-g="${CSS.escape(p.id)}"]`); if (!fila) return;
+  const fila = document.querySelector(`#grid .pr[data-g="${CSS.escape(p.id)}"]`); if (!fila) return;
   fila.scrollIntoView({ block: 'center' });
-  const inp = [...document.querySelectorAll('#grid .inp')].find(e => LINES[e.dataset.line] && LINES[e.dataset.line].p === p && !e.readOnly);
+  const inp = [...fila.querySelectorAll('.inp')].find(e => !e.readOnly);
   if (inp) inp.focus({ preventScroll: true }); else { const b = fila.querySelector('[data-k72]'); if (b) b.focus({ preventScroll: true }); }
 }
 /* diálogo del cierre total con productos sin cerrar */
@@ -3309,18 +3548,24 @@ document.addEventListener('click', ev => {
   if (k72Dialogo()) { ev.stopImmediatePropagation(); ev.preventDefault(); }
 }, true);
 document.addEventListener('click', ev => {
-  const t = ev.target.closest && ev.target.closest('[data-k72],[data-k72-f],[data-k72-sig],[data-k72-plegar],[data-k72-ir],.k72-d'); if (!t) return;
+  const t = ev.target.closest && ev.target.closest('[data-k72],[data-k72-f],[data-k72-sig],[data-k72-plegar],[data-k72-ir],[data-k94-av],.k72-d'); if (!t) return;
   const ds = t.dataset;
   if (ds.k72) { const p = PID[ds.k72]; if (!p) return; const on = !k72Cerrado(p); if (!k72Poner(p, on)) return; toast(on ? (K72.guardados ? `Se ${K72.guardados === 1 ? 'guardó 1 cambio' : 'guardaron ' + K72.guardados + ' cambios'} y se cerró el producto` : 'Producto cerrado: sus casillas quedan bloqueadas') : 'Producto reabierto'); k72Despues(p, on, t); return; }
-  if (ds.k72F) { K72.filtro = ds.k72F; S.capLim = 25; pintarGrid(); const b = document.querySelector(`[data-k72-f="${ds.k72F}"]`); if (b) b.focus(); return; }
+  if (ds.k72F) { K72.filtro = ds.k72F; S.capLim = CAP_LIM; pintarGrid(); const b = document.querySelector(`[data-k72-f="${ds.k72F}"]`); if (b) b.focus(); return; }
   if ('k72Plegar' in ds) { K72.plegar = !K72.plegar; k72GuardarPref(); pintarGrid(); const b = document.querySelector('[data-k72-plegar]'); if (b) b.focus(); return; }
+  if ('k94Av' in ds) { K72.avPl = !K72.avPl; k72GuardarPref(); k72PintarAvance(true); const b = document.querySelector('[data-k94-av]'); if (b) b.focus(); return; }
   if ('k72Sig' in ds) { const p = k72Siguiente(S.abierto || K72.ultimo); if (p) k72IrA(p); return; }
-  if (ds.k72Ir) { const d = $('#k72-dlg'); if (d && d.open) d.close(); S.dist = ds.k72Ir; S.capLim = 25; pintarEncabezado(); const p = k72Siguiente(null); if (p) k72IrA(p); return; }
+  if (ds.k72Ir) { const d = $('#k72-dlg'); if (d && d.open) d.close(); S.dist = ds.k72Ir; S.capLim = CAP_LIM; pintarEncabezado(); const p = k72Siguiente(null); if (p) k72IrA(p); return; }
   if (t.classList.contains('k72-d')) { const b = document.querySelector(`.k72-d[data-k72-cl="${CSS.escape(ds.k72Cl)}"]`); if (b) b.focus(); }      // el manejador de data-d ya filtró y repintó
 });
 document.addEventListener('focusin', ev => { const el = ev.target; if (el.classList && el.classList.contains('inp') && el.closest('#grid') && LINES[el.dataset.line]) K72.ultimo = LINES[el.dataset.line].p.id; });
 let rafK72 = 0;
-const k72Pronto = () => { cancelAnimationFrame(rafK72); rafK72 = requestAnimationFrame(() => { k72Badges(); if (S.vista === 'capturar') k72PintarAvance(); else k72PintarListo(); }); };
+const K72SUC = new Set();      // 094: productos cuyo estado puede haber cambiado ('*' = todos)
+const k72Pronto = ev => {
+  const x = (ev && ev.detail) || {}, L = x.clase ? LINES[x.clase + '__' + x.cod] : null; K72SUC.add(L ? L.p.id : '*');
+  cancelAnimationFrame(rafK72);
+  rafK72 = requestAnimationFrame(() => { if (K72SUC.has('*')) k72Badges(); else K72SUC.forEach(id => k72Badges(id)); K72SUC.clear(); if (S.vista === 'capturar') k72PintarAvance(true); else k72PintarListo(); });
+};
 document.addEventListener('fcst:captura', k72Pronto);      // pendiente → en progreso mientras se escribe
 document.addEventListener('input', ev => { if (ev.target.dataset && ev.target.dataset.nota) k72Pronto(); });
 /* solo lectura de BI: portal.js pone body.solo-lectura después de arrancar la página */
@@ -3378,9 +3623,14 @@ function r92Resumen(p) {
 }
 function r92Refrescar(p) {
   if (!r92(p)) return;
-  $$('[data-r92h]').forEach(el => { if (el.dataset.r92h !== p.id) return; const m = el.dataset.m, f = r92Mes(p, m), e = r92Estado(p, m), c = p.cap.find(x => x.cod === p.principal) || p.cap[0], u = (c && c.pzPorU) || 1;
-    el.className = 'r92-h e-' + e; el.title = r92Texto(p, m, true); el.textContent = 'sug. ' + fN1(f.sugeridoPz / u) + (e ? ' · ' + R92E[e][1].toLowerCase().replace('tu forecast queda corto', 'corto') : ''); });
-  $$('[data-r92res]').forEach(el => { if (el.dataset.r92res === p.id) { const w = document.createElement('span'); w.innerHTML = r92Resumen(p); el.replaceWith(w.firstElementChild); } });
+  const raices = [GEL.get(p.id), S.abierto === p.id ? $('#det') : null].filter(Boolean);      // 094: solo el bloque del producto y el detalle
+  raices.forEach(raiz => {
+    raiz.querySelectorAll('[data-r92h]').forEach(el => { const m = el.dataset.m, f = r92Mes(p, m), e = r92Estado(p, m), c = p.cap.find(x => x.cod === p.principal) || p.cap[0], u = (c && c.pzPorU) || 1;
+      el.className = 'r92-h e-' + e;
+      if (el.hasAttribute('data-corto')) { el.innerHTML = k94SugTxt(f.sugeridoPz / u, e); return; }      // 094: pista de una línea en la grilla (el porqué va en el tooltip)
+      el.title = r92Texto(p, m, true); el.textContent = 'sug. ' + fN1(f.sugeridoPz / u) + (e ? ' · ' + R92E[e][1].toLowerCase().replace('tu forecast queda corto', 'corto') : ''); });
+    raiz.querySelectorAll('[data-r92res]').forEach(el => { const w = document.createElement('span'); w.innerHTML = r92Resumen(p); el.replaceWith(w.firstElementChild); });
+  });
   const sec = $('#r92-sec'); if (sec && S.abierto === p.id) sec.outerHTML = r92Html(p);
 }
 /* ---------- detalle: inventario reportado + órdenes en tránsito + pedidos + lo que ya llegó, y el total que cuenta ---------- */
@@ -3522,7 +3772,7 @@ if (typeof window.portalOrdenes === 'function' && conExportacion()) {
 if (VENCIDO) $('#b-listo').disabled = true;
 (async () => {
   if (!window.claude || !window.claude.use) {
-    try { const g = JSON.parse(localStorage.getItem(LS_K82G) || 'null'); if (g && typeof g === 'object') { remote = g; sincronizarInputs(); refrescarResumen(); } } catch (e) { }      // 082-MESES: lo guardado en este navegador (sin OneDrive)
+    try { const g = JSON.parse(localStorage.getItem(LS_K82G) || 'null'); if (g && typeof g === 'object') { remote = g; sincronizarInputs(); refrescarResumen(); pintarCiclo(); } } catch (e) { }      // 082-MESES: lo guardado en este navegador (sin OneDrive)
     K82G.listo = 'Sin conexión: Guardar lo deja en este navegador'; estado(K82G.listo, 'pend'); k82Oferta(); return;
   }
   const t10 = setTimeout(() => estado('El servidor no responde todavía; lo que escribas se guardará al reconectar', 'pend'), 10000);
@@ -3542,7 +3792,7 @@ if (VENCIDO) $('#b-listo').disabled = true;
     if (!snap.metadata.fromCache) clearTimeout(t10);
     K82G.listo = K82G.listo && /^Guardado \d/.test(K82G.listo) ? K82G.listo : VENCIDO ? 'Captura cerrada · solo lectura' : snap.size ? 'Guardado al día' : 'Listo para capturar';
     if (!pendientes) { if (k82N()) estado('Sin guardar', 'pend'); else estado(K82G.listo, 'ok'); }      // 082-MESES
-    sincronizarInputs(); refrescarResumen();
+    sincronizarInputs(); refrescarResumen(); pintarCiclo();      // 094: la línea de BI dice cuándo se guardó la captura
   }, () => { clearTimeout(t10); estado('No se pudo leer lo guardado', 'err'); });
   db.doc(`ciclos/${CID}`).onSnapshot(d => { envio = d.exists ? d.data() : null; pintarEnvio(); }, () => { });
   k82Oferta();

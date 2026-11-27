@@ -174,7 +174,7 @@ table{border-collapse:separate;border-spacing:0}
 }
 
 /* captura */
-.cap-wrap{max-height:min(72vh,780px)}
+.cap-wrap{max-height:min(72vh,780px)}   /* 094: en Capturar lo reemplaza #grid-box .cap-wrap (094-CAPTURA) */
 table.cap{width:100%;font-size:13px}
 table.cap th,table.cap td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums}
 table.cap thead th{position:sticky;top:0;background:var(--surface-2);font-size:12px;font-weight:600;color:var(--ink-3);z-index:2;vertical-align:bottom}
@@ -529,9 +529,9 @@ details.cat .gp-d:last-child{border-bottom:0}
 .cap-graf .panel-h h2{font-size:14.5px}
 .cap-graf.plegado .cg-cuerpo{display:none}
 .cap-graf.plegado .panel-h{margin-bottom:0}
+.cap-graf.plegado{padding-block:4px}
 @media (min-width:761px){
   .cap-graf{position:sticky;top:var(--top-h,0px);z-index:6;box-shadow:0 6px 14px rgba(20,35,44,.08)}
-  .cap-graf:not([hidden]) ~ #grid-box .cap-wrap{max-height:max(260px,min(72vh,calc(100vh - var(--top-h,0px) - var(--cg-h,0px) - 28px)))}
 }
 /* 070-GRAFICO fin */
 /* 090-CAPFILTRO inicio · en Capturar, tocar un producto filtra el gráfico de arriba (fila de título, fila de código, su nombre o "Ver en el gráfico") */
@@ -739,6 +739,294 @@ body.k82-hay .insp{bottom:70px}
 .r92-d summary{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;cursor:pointer}
 .r92-d[open] summary{margin-bottom:6px}
 .insp .r92-it{flex-basis:100%} .insp .r92-it b{font-weight:400;line-height:1.4}
+/* 094-CAPTURA inicio · lista completa de la captura: grilla CSS con roles de tabla (#grid role=table), una fila por código.
+   Mismas columnas (--cols, anchos fijos) en encabezado, filas y pie: cada mes del encabezado cae sobre su casilla. Scroll natural de la página
+   con el encabezado pegado debajo del gráfico compacto y el pie abajo; si no cabe a lo ancho, panel del alto disponible (.cap-x) con la columna
+   de producto fija. Cada producto (.pr) con content-visibility: auto + contain-intrinsic-size (no pinta lo que está fuera de la pantalla). */
+#grid-box .cap-wrap{max-height:none;overflow:visible;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+#grid-box .cap-wrap.cap-x{overflow:auto;max-height:max(340px,calc(100dvh - var(--top-h,0px) - var(--cg-h,0px) - 20px));overscroll-behavior-x:contain}
+body.k82-hay #grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--top-h,0px) - var(--cg-h,0px) - 92px))}
+.cap{width:100%;min-width:var(--minw,0);font-size:13px;font-variant-numeric:tabular-nums}
+.cap .cr{display:grid;grid-template-columns:var(--cols);--bgc:var(--surface)}
+.cap .ms{display:contents}
+.cap .cr>*,.cap .ms>*{background:var(--bgc);border-bottom:1px solid var(--line);padding:5px 8px;min-width:0}
+.cap .c-p{display:flex;flex-direction:column;justify-content:center;gap:1px;text-align:left;border-right:1px solid var(--line)}
+.cap .p1,.cap .p2{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
+.cap .p2{font-size:12px;color:var(--ink-3);line-height:1.35}
+.cap .p2t{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cap .pr-sel{all:unset;box-sizing:border-box;cursor:pointer;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;border-radius:3px;line-height:1.35}
+.cap .pr-sel:hover{color:var(--accent);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--accent-mark)}
+.cap .pr-sel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cap .c-p.k94-cod{padding-left:24px}
+.cap .c-p.k94-cod .p1 b{font-weight:600}
+.cap .bds{display:inline-flex;gap:4px;flex:none}
+.cap .bds:empty{display:none}
+.bd{display:inline-flex;align-items:center;gap:3px;border-radius:999px;padding:0 7px 0 3px;font-size:11.5px;font-weight:600;line-height:18px;white-space:nowrap;background:var(--neutral-bg);color:var(--ink-3);cursor:default}
+.bd i{font-style:normal;display:inline-grid;place-items:center;width:13px;height:13px;border-radius:50%;background:var(--ink-3);color:#fff;font-size:9.5px;font-weight:700;line-height:1}
+.bd.bad{background:var(--bad-bg);color:var(--bad)} .bd.bad i{background:var(--bad)}
+.bd.warn{background:var(--warn-bg);color:var(--warn)} .bd.warn i{background:#B87A12}
+.k72-est.k94-mini{padding:0;border:0;background:none;width:16px;height:16px;justify-content:center;flex:none}
+.k72-est.k94-mini .k72-i{width:15px;height:15px;vertical-align:0}
+.cap .c-m{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:1px;text-align:right}
+.cap .c-m .inp{width:100%;max-width:84px;min-height:max(28px,var(--target));padding:3px 6px}
+.cap .c-m .k82-w{display:block;width:100%;max-width:84px}
+.cap .c-m .k82-in{width:100%;min-height:max(28px,var(--target))}
+.cap .hint{display:block;margin:0;font-size:11px;line-height:14px;min-height:14px;white-space:nowrap;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cap .hint .r92-h{margin:0;display:inline;font-weight:600}
+.cap .mlab{display:none}
+.cap .ms>.c-m.st-curso{background:repeating-linear-gradient(135deg,#F6F7F8 0 5px,#ECEFF2 5px 7px)}
+.cap .ms>.c-m.st-real,.cap .ms>.c-m.st-pend,.cap .ms>.c-m.st-ref{--bgc:var(--surface-2)}
+.cap .c-t,.cap .c-v{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;text-align:right;white-space:nowrap}
+.cap .c-t b,.cap .c-v b{font-weight:600}
+.cap .c-t small,.cap .c-v small{font-size:11px;color:var(--ink-3);line-height:14px}
+.cap .c-t small .warn{color:var(--warn)}
+.cap .c-a{display:flex;flex-direction:column;gap:3px;align-items:stretch;justify-content:center;padding:4px 8px}
+.cap .c-a .btn{min-height:max(22px,var(--target));padding:1px 8px;font-size:12px;font-weight:600;justify-content:center;gap:4px;border-radius:6px}
+.cap .ib{flex:none;display:inline-grid;place-items:center;width:max(22px,var(--target));height:max(22px,var(--target));margin:-2px 0;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--ink-3);cursor:pointer}
+.cap .ib svg.ico{width:16px;height:16px;stroke:currentColor}
+.cap .ib:hover{color:var(--accent);border-color:var(--accent-mark);background:var(--surface)}
+.cap .ib:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cap .c-l{padding:4px 3px;background:var(--surface-2)}
+.cap .c-sum{grid-column:2 / -2;display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;color:var(--ink-2);text-align:left}
+.cap .c-sum b{color:var(--ink);font-weight:600}
+.cap .tit{--bgc:var(--surface-2)}
+.cap .tit>*{padding-top:4px;padding-bottom:4px}
+.cap .tit .c-a .btn{min-height:max(22px,var(--target))}
+.lnk{all:unset;cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px;text-decoration-color:currentColor;border-radius:2px}
+.lnk:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cap .c-t .lnk.r92-h,.cap .c-sum .lnk.r92-h{margin:0;font-size:11px;line-height:14px;text-decoration-color:var(--line-2)}
+.cap .c-sum .lnk.r92-h{font-size:12.5px}
+.r92-h.e-exceso{color:var(--bad)} .r92-h.e-recortado,.r92-h.e-corto{color:var(--warn)} .r92-h.e-coincide{color:var(--good)}
+/* encabezado de meses: pegado arriba (debajo de la barra y del gráfico compacto) y alineado con las columnas */
+.cap .cab{position:sticky;top:calc(var(--top-h,0px) + var(--cg-h,0px));z-index:4;--bgc:var(--surface-2)}
+.cap .cab>*,.cap .cab .ms>*{font-size:12px;font-weight:600;color:var(--ink-3);padding:6px 8px;border-bottom:1px solid var(--line-2)}
+.cap .cab .c-m{display:block;text-align:center;line-height:1.3}
+.cap .cab .c-m small{display:block;font-weight:400;font-size:11px}
+.cap .cab .c-m.st-abierto{color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent-mark)}
+.cap .cab .c-t,.cap .cab .c-v{display:flex;align-items:flex-end;justify-content:flex-end}
+.cap .cab .c-p{justify-content:flex-end}
+.cap .cab .c-l{display:flex;align-items:center;justify-content:center;padding:3px}
+.cap .cab .k82-tg{padding:2px 3px;min-width:28px}
+.cap .cab .k82-tg small{display:none}
+/* pie de totales: pegado abajo */
+.cap .pie{position:sticky;bottom:0;z-index:3;--bgc:var(--surface-2)}
+.cap .pie>:not(.ms),.cap .pie .ms>*{font-weight:600;border-top:1px solid var(--line-2);border-bottom:0;display:flex;align-items:center;justify-content:flex-end}
+.cap .pie .c-p{justify-content:flex-start}
+body.k82-hay .cap .pie{bottom:68px}
+#grid-box .cap-x .cab{top:0}
+#grid-box .cap-x .pie,body.k82-hay #grid-box .cap-x .pie{bottom:0}
+#grid-box .cap-x .c-p{position:sticky;left:0;z-index:2}
+#grid-box .cap-x .cab .c-p,#grid-box .cap-x .pie .c-p{z-index:3}
+#grid-box .cap-x .bd{padding:0 2px}
+#grid-box .cap-x .bd .bdt{display:none}      /* panel angosto: insignias solo con su ícono (el texto completo sigue en el title y para el lector de pantalla) */
+/* producto: bloque con contención; elegido = fondo azul y marca a la izquierda; la fila se puede tocar */
+.cap .pr{content-visibility:auto;contain-intrinsic-size:auto 58px}
+.cap .pr .cr{cursor:pointer}
+.cap .pr .cr:hover{--bgc:#F7FAFC}
+.cap .pr .cr.tit:hover{--bgc:#F2F6F9}
+.cap .pr.sel .cr,.cap .pr.sel .cr:hover{--bgc:var(--accent-soft)}
+.cap .pr.sel .c-p{box-shadow:inset 3px 0 0 var(--accent-mark)}
+.cap .pr.sel .c-l{background:var(--accent-soft)}
+.cap .pr.plegado .p1 .pr-sel{color:var(--ink-2)}
+.cap .unid-row{border-bottom:1px solid var(--line);padding:4px 8px 8px;background:var(--surface);cursor:default}
+.cap .vacio{grid-column:1 / -1;border-bottom:1px solid var(--line)}
+/* tooltip de la casilla (uno solo; popover manual en la capa superior) */
+.cap-tip{position:fixed;inset:auto;margin:0;z-index:70;width:max-content;max-width:min(330px,calc(100vw - 16px));background:var(--surface);color:var(--ink);border:1px solid var(--line-2);border-radius:10px;padding:8px 11px;box-shadow:0 10px 28px rgba(20,35,44,.18);font-size:12.5px;line-height:1.4;overflow:visible}
+.cap-tip .tt{font-weight:600;margin-bottom:4px;max-width:300px}
+.cap-tip .tt small{display:block;font-weight:400;color:var(--ink-3);font-size:11.5px}
+.cap-tip .tr{display:flex;justify-content:space-between;gap:14px}
+.cap-tip .tr span{color:var(--ink-3)}
+.cap-tip .tr b{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.cap-tip .tr b small{font-weight:400;color:var(--ink-3)}
+.cap-tip .tp{margin:6px 0 0;padding:6px 8px;border-radius:6px;background:var(--accent-soft);color:#0B4A6B;font-size:12px}
+.cap-tip .tp.e-exceso,.cap-tip .tp.bad{background:var(--bad-bg);color:#7A1A12}
+.cap-tip .tp.e-recortado,.cap-tip .tp.e-corto{background:var(--warn-bg);color:#5E3B00}
+.cap-tip .tp.e-coincide{background:var(--good-bg);color:#14532D}
+.cap-tip .tpie{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);font-size:12px}
+@media (prefers-reduced-motion:no-preference){.cap-tip:is(:popover-open,:not([popover])){animation:tip-entra .12s ease-out}@keyframes tip-entra{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}}
+/* gráfico compacto de Capturar */
+.cap-graf{padding:8px 12px 6px}
+.cap-graf .panel-h{margin-bottom:2px}
+.cap-graf .legend{margin-top:2px;gap:4px 6px}
+.cap-graf .legend .ser-l{gap:4px}
+.cap-graf .ser{font-size:12px;padding:1px 9px 1px 6px;min-height:max(24px,var(--target))}
+/* celular: una tarjeta por producto; los meses en una franja horizontal desplazable, cada casilla con su mes */
+@media (max-width:760px){
+  #grid-box .cap-wrap{border:0;background:transparent;overflow:visible}
+  .cap{min-width:0}
+  .cap .cab{display:none}
+  .cap .pr{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin:0 0 10px;overflow:hidden;contain-intrinsic-size:auto 200px}
+  .cap .pr.sel{border-color:var(--accent-mark);box-shadow:inset 3px 0 0 var(--accent-mark)}
+  .cap .pr.sel .c-p{box-shadow:none}
+  .cap .cr{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"p p p" "m m m" "t v a"}
+  .cap .cr>*,.cap .ms>*{border-bottom:0}
+  .cap .c-p{grid-area:p;border-right:0;padding:9px 10px 2px}
+  .cap .p1{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px;row-gap:4px;align-items:start;white-space:normal;line-height:1.35}
+  .cap .p1 .k72-g{padding-top:2px}
+  .cap .pr-sel{white-space:normal;overflow-wrap:anywhere}
+  .cap .ib{margin:-10px -6px -6px 0}
+  .cap .p1 .bds{grid-column:1 / -1}
+  .cap .p1 .pill{justify-self:start}
+  body.k82-hay .toast{bottom:calc(128px + env(safe-area-inset-bottom,0px))}
+  .cap .p2{flex-wrap:wrap;white-space:normal}
+  .cap .bds{flex-wrap:wrap}
+  .cap .p2{margin-top:2px}
+  .cap .c-a{grid-area:a;flex-direction:row;padding:2px 10px 9px 0;align-items:center}
+  .cap .c-a:empty{display:none}
+  .cap .c-a .btn{min-width:var(--target)}
+  .cap .ms{grid-area:m;display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;overscroll-behavior-x:contain;padding:6px 10px 6px;background:var(--bgc);scrollbar-width:thin}
+  .cap .ms>.c-m{flex:0 0 80px;scroll-snap-align:start;padding:4px 6px 3px;border:1px solid var(--line);border-radius:8px;align-items:stretch;background:var(--surface)}
+  .cap .ms>.c-m.st-abierto{border-color:#BFDDF0;background:#FBFDFF}
+  .cap .mlab{display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--ink-2);text-align:left;line-height:1.3}
+  .cap .c-m .inp,.cap .c-m .k82-w{max-width:none}
+  .cap .c-l{display:none}
+  .cap .c-t{grid-area:t;flex-direction:row;align-items:baseline;justify-content:flex-start;gap:6px;padding:2px 10px 9px}
+  .cap .c-t::before{content:"Total";color:var(--ink-3);font-size:12px}
+  .cap .c-v{grid-area:v;flex-direction:row;align-items:baseline;gap:6px;padding:2px 10px 9px}
+  .cap .c-v small{display:none}
+  .cap .c-t,.cap .c-v{align-self:center}
+  .cap .tit{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p p" "s a"}
+  .cap .c-sum{grid-area:s;padding:2px 10px 9px}
+  .cap .cr.k94-cod{border-top:1px dashed var(--line-2)}
+  .cap .c-p.k94-cod{padding-left:10px}
+  .cap .c-p.k94-cod .p2{flex-wrap:nowrap;white-space:nowrap}
+  .cap .pie{position:static;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p v";border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .cap .pie .ms,.cap .pie .c-t,.cap .pie .c-a,.cap .pie .c-l{display:none}
+  .cap .pie .c-p{grid-area:p;border-top:0} .cap .pie .c-v{grid-area:v;border-top:0}
+  .cap .unid-row{padding:0 10px 10px;border-bottom:0}
+  .cap .unid-g{position:static;max-width:none}
+  .cap .vacio{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+}
+/* 094 (revisión del 26-nov) · primera pantalla compacta (resumen en una línea con "¿Cómo funciona?" plegable, avance en una fila, filtros en
+   una fila), nombre Brinova completo en hasta 2 líneas con la marca como prefijo gris, avisos como puntos de color (máx. 2 + "+N") y gráfico
+   que hace scroll con la página (ya no queda pegado arriba); el encabezado pegado de la lista dice qué muestra el gráfico. */
+#v-capturar.view{gap:6px}
+.k94-top{padding:5px 14px}
+.k94-fila{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap}
+.k94-fila .resumen-cap{gap:4px 14px;flex:1 1 auto;min-width:0;font-size:13.5px}
+.k94-como{flex:none}
+.k94-como>summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;min-height:var(--target);display:flex;align-items:center;list-style:none;border-radius:4px}
+.k94-como>summary::-webkit-details-marker{display:none}
+.k94-como>summary::before{content:"?";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid currentColor;font-size:11px;margin-right:6px;flex:none}
+.k94-como>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.k94-como[open]{flex-basis:100%;order:10}
+.k94-como .prosa{max-width:96ch;margin-top:4px;font-size:13px}
+.k94-como ul{margin:4px 0 2px;padding-left:18px}
+.k94-como li{margin:3px 0}
+.k94-der{display:flex;gap:8px;align-items:center;margin-left:auto}
+.k94-der #b-listo{padding-block:3px}
+.k94-av{display:flex;align-items:center;gap:8px 12px;padding:3px 12px;min-width:0}
+.k94-avt{all:unset;box-sizing:border-box;cursor:pointer;font-weight:600;white-space:nowrap;padding:0 4px;border-radius:4px;min-height:var(--target);display:inline-flex;align-items:center;gap:4px;flex:none}
+.k94-avt:hover{color:var(--accent)}
+.k94-avt:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.k94-avb{display:flex;align-items:center;gap:8px;flex:none;white-space:nowrap;font-size:13px}
+.k94-avb .k72-bar{width:120px;margin:0}
+.k94-avb b{font-weight:600}
+.k94-avc{flex:1 1 0;min-width:0;display:flex;gap:6px;align-items:center;padding:2px}
+.k94-av .k94-d{flex:none;flex-direction:row;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12.5px;white-space:nowrap;min-height:var(--target)}
+.k94-av .k94-d b{font-weight:600}
+.k94-d .k72-bar{width:34px;height:5px;margin:0}
+.k94-d .k72-i{width:13px;height:13px;color:var(--good)}
+.k94-pl{flex:none}
+.k94-sig{margin-left:auto;flex:none;padding-block:4px}
+.k94-listo{flex:none}
+.k94-tools{flex-wrap:nowrap;margin:0;gap:8px;align-items:center}
+.k94-tools input[type=search]{flex:0 1 210px;min-width:150px}
+.k94-fx{display:flex;gap:8px;align-items:center;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:thin;padding:2px}
+.k94-fx>*{flex:none}
+.k94-fx .chips,.k94-fx .seg{flex-wrap:nowrap}
+#k72-fil button{display:inline-flex;align-items:center;gap:5px}
+/* nombre Brinova completo (hasta 2 líneas) y marca como prefijo gris */
+.cap .p1{align-items:flex-start}
+.cap .pr-sel{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;overflow-wrap:anywhere}
+.cap .mk{font-size:10.5px;font-weight:600;color:var(--ink-3);letter-spacing:.02em}
+#grid-box .cap-x .mk{display:none}
+.cap .p1 .k72-g{margin-top:1px}
+/* avisos: puntos de color con símbolo (texto completo en el title y para el lector de pantalla) */
+.cap .bds{display:inline-flex;gap:3px;flex:none;align-items:center}
+.cap .bd{padding:0;background:none;gap:0;line-height:16px;cursor:help}
+.cap .bd i{width:16px;height:16px;font-size:10px}
+.cap .bd.mas{padding:0 5px;border-radius:999px;background:var(--neutral-bg);color:var(--ink-2);font-size:11px;font-weight:600}
+.cap .p2 .bds{margin-left:2px}
+/* gráfico: scroll normal con la página; el encabezado pegado de la lista lleva el contexto */
+#cap-graf.cap-graf{position:static;box-shadow:none}
+.cap .cab{top:var(--top-h,0px)}
+#grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--top-h,0px) - 20px))}
+body.k82-hay #grid-box .cap-wrap.cap-x{max-height:max(340px,calc(100dvh - var(--top-h,0px) - 92px))}
+.cap .cab .c-p{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:6px}
+.k94-cpt{white-space:nowrap}
+.k94-cgx{display:inline-flex;gap:2px;align-items:center;min-width:0}
+.k94-cgf{font-size:12px;padding:1px 9px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:max(24px,var(--target));background:var(--accent-soft);border-color:var(--accent-mark);color:#075E8A;font-weight:600}
+.k94-cgv{font-size:12px}
+@media (max-width:760px){
+  .k94-top{padding:8px 12px}
+  .k94-fila{gap:4px 12px}
+  .k94-fila .resumen-cap{flex-basis:100%;font-size:13px;gap:2px 10px}
+  .k94-der{margin-left:auto}
+  .k94-der #estado-envio{display:none}
+  .k94-av{flex-wrap:wrap;padding:4px 10px;gap:6px 10px}
+  .k94-avb .k72-bar{width:56px}
+  .k94-avb .muted{display:none}
+  .k94-avt #k72-t{display:none}
+  .k94-avb .k72-bar{width:44px}
+  .k94-avc{order:5;flex-basis:100%;overflow-x:auto}
+  .k94-tools{flex-wrap:wrap;gap:6px}
+  .k94-tools input[type=search]{flex:1 1 100%}
+  .k94-fx{flex-basis:100%}
+  .cap .mk{display:block;font-size:10px;line-height:1.2}
+  .cap .pr-sel{-webkit-line-clamp:3;line-clamp:3}
+  .cap .p2 .bds{margin-left:0}
+  .k94-cgx{display:none}
+}
+/* 094 (revisión 2) · más filas a la vista: filas de 47 px, resumen y avance en una sola tarjeta, leyenda del gráfico en su línea de título */
+.cap .cr>*,.cap .ms>*{padding-top:3px;padding-bottom:3px}
+.cap .c-m .inp,.cap .c-m .k82-in{min-height:max(26px,var(--target));padding-block:2px}
+.cap .hint{line-height:13px;min-height:13px}
+.cap .tit>*{padding-top:2px;padding-bottom:2px}
+.cap .cab>*,.cap .cab .ms>*{padding-top:4px;padding-bottom:4px}
+.cap .c-a{padding-block:3px}
+.k94-top{border-bottom:0;border-bottom-left-radius:0;border-bottom-right-radius:0;padding-bottom:4px}
+#k72-avance.k94-av{margin-top:-6px;border-top:1px dashed var(--line);border-top-left-radius:0;border-top-right-radius:0;padding-top:4px}
+.k94-der #estado-envio:not(.good){display:none}
+.k94-der #b-listo{flex-direction:row;align-items:center;gap:6px}
+.k94-der #b-listo .k72-av{display:none}
+.cap-graf .panel-h{flex-wrap:wrap;align-items:center}
+.cap-graf .k94-lg{margin:0;flex:1 1 auto;min-width:0}
+.cap-graf:not(.plegado) #cg-nota{display:none}
+.cap-graf.plegado .k94-lg{display:none}
+.k94-cto{display:none}
+@media (max-width:760px){
+  .k94-lgo{display:none} .k94-cto{display:inline}
+  #f-vista,#f-unidad{flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none}
+  .filtros .wrap{gap:8px 10px;padding-block:8px 2px}
+  .k94-tools{flex-wrap:nowrap}
+  .k94-tools input[type=search]{flex:0 0 132px;min-width:0}
+  .k94-fx{flex:1 1 auto;flex-basis:auto}
+  .cap-graf.plegado #cg-nota{display:none}
+  .cap-graf .k94-lg{flex-basis:100%;order:5}
+  .cap-graf .panel-h h2{flex:1 1 0;min-width:0}
+}
+/* el texto oculto para el lector de pantalla (.vh, position:absolute) se posiciona dentro de su celda: si no, en la franja desplazable del celular
+   quedaba fuera de la franja y agrandaba la página a lo ancho */
+.cap .ms>*,.cap .bd,.cap .lnk,.cap .c-t,.cap .c-sum,.cap .k72-est,.cap .c-a,.k94-av .k94-d,.k94-avt,.k94-sig,.unid-cont,.k94-fx button,.k94-fv button,.k94-avc button,.k82-b,.k94-como>summary{position:relative}
+.k94-fv{display:contents}
+@media (max-width:760px){
+  .k94-fv{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none;flex:1 1 100%}
+  .k94-fv>*{flex:none}
+  .k94-fv .spacer{display:none}
+  .k94-fila .resumen-cap .k94-sec{display:none}
+  .k94-ct{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap}
+  .k94-como>summary::before{margin-right:0;width:22px;height:22px;font-size:13px}
+  .k94-como>summary{min-width:var(--target);justify-content:center}
+  .k94-fila{flex-wrap:wrap}
+  .k94-fila .resumen-cap{flex-basis:auto;flex:1 1 100%}
+  .k94-unid:empty{display:none}
+  .k94-der #b-listo{font-size:12.5px;padding:3px 10px}
+  .k94-der{margin-left:0;flex:1 1 auto;justify-content:flex-end}
+  .unid-cont .k94-lgo{display:none}
+  #b-listo .k94-lgo{display:none}
+}
+/* 094-CAPTURA fin */
 </style>
 <style>
 body.cargando>header,body.cargando>section,body.cargando>main{display:none}
@@ -802,6 +1090,7 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 <section class="filtros" aria-label="Filtros">
   <div class="wrap">
     <div class="seg" id="f-dist" role="group" aria-label="Distribuidor"></div>
+    <div class="k94-fv"><!-- 094: en el celular, vista, unidad y moneda en una sola fila desplazable (en escritorio no cambia nada: display:contents) -->
     <div class="seg" id="f-vista" role="group" aria-label="Vista">
       <button type="button" data-v="tendencia" aria-pressed="true">Resumen</button>
       <button type="button" data-v="capturar" aria-pressed="false">Capturar forecast</button>
@@ -811,12 +1100,13 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <div class="spacer"></div>
     <span class="lbl-f" id="lbl-u">Ver en</span>
     <div class="seg" id="f-unidad" role="group" aria-labelledby="lbl-u">
-      <button type="button" data-u="form" aria-pressed="true">Unidad del formulario</button>
-      <button type="button" data-u="pz" aria-pressed="false">Piezas (unidad estándar)</button>
+      <button type="button" data-u="form" aria-pressed="true"><span class="k94-lgo">Unidad del formulario</span><span class="k94-cto">Formulario</span></button><!-- 094: texto corto en el celular -->
+      <button type="button" data-u="pz" aria-pressed="false"><span class="k94-lgo">Piezas (unidad estándar)</span><span class="k94-cto">Piezas</span></button>
     </div>
     <div class="seg" id="f-mon" role="group" aria-label="Moneda de los montos" hidden><!-- 092-USD -->
       <button type="button" data-mon="CRC" aria-pressed="false" title="Montos en colones">₡</button>
       <button type="button" data-mon="USD" aria-pressed="false" title="Montos en dólares (precio de lista USD de Softland)">US$</button>
+    </div>
     </div>
   </div>
 </section>
@@ -854,30 +1144,29 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
     <details class="panel solo-bi notas-bi"><summary>Notas de cálculo (BI)</summary><div id="v-metodo"></div></details>
   </section>
   <section class="view" id="v-capturar" hidden>
-    <section class="panel">
-      <div class="barra-envio">
-        <div class="prosa" id="cap-intro"></div>
-        <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span id="estado-envio" class="pill">Sin enviar</span>
-          <button type="button" class="btn pri" id="b-listo">Marcar forecast como listo</button>
-        </div>
+    <section class="panel k94-top" aria-label="Tu forecast"><!-- 094 (revisión): resumen en una línea, explicación plegada, cierre del formulario -->
+      <div class="k94-fila">
+        <div class="resumen-cap" id="cap-res"></div><span class="k94-unid" id="k94-unid"></span>
+        <details class="k94-como"><summary><span class="k94-ct">¿Cómo funciona?</span></summary><div class="prosa" id="cap-intro"></div></details>
+        <span class="k94-der"><span id="estado-envio" class="pill">Sin enviar</span><button type="button" class="btn pri" id="b-listo">Marcar forecast como listo</button></span>
       </div>
-      <div class="resumen-cap" id="cap-res" style="margin-top:10px"></div>
     </section>
-    <section class="panel k72-avance" id="k72-avance" aria-labelledby="k72-t"></section><!-- 072-CIERRE: avance por distribuidor y filtros (app_3 › k72PintarAvance) -->
-    <div class="tools">
+    <section class="panel k72-avance k94-av" id="k72-avance" aria-labelledby="k72-t"></section><!-- 072-CIERRE · 094: avance en una fila (app_3 › k72PintarAvance) -->
+    <div class="tools k94-tools">
       <input type="search" id="q2" placeholder="Buscar producto o código" aria-label="Buscar en captura" autocomplete="off" spellcheck="false">
-      <div class="seg" id="f-capv" role="group" aria-label="Meses visibles"></div>
-      <div class="chips" id="chips2"></div>
+      <div class="k94-fx">
+        <div class="seg" id="k72-fil" role="group" aria-label="Mostrar productos"></div>
+        <div class="chips" id="chips2" role="group" aria-label="Filtrar"></div>
+        <div class="seg" id="f-capv" role="group" aria-label="Meses visibles"></div>
+      </div>
     </div>
     <section class="panel cap-graf" id="cap-graf" aria-labelledby="cg-t" hidden>
-      <div class="panel-h"><h2 id="cg-t">Producto que estás capturando</h2><span class="nota" id="cg-nota"></span>
+      <div class="panel-h"><h2 id="cg-t">Producto que estás capturando</h2><span class="nota" id="cg-nota"></span><div class="legend k94-lg" id="lg-cap"></div><!-- 094: leyenda en la línea del título -->
         <span class="der"><button type="button" class="chip" id="b-cgclr" hidden>Quitar filtro</button><button type="button" class="chip" id="b-cg" aria-expanded="true" aria-controls="cg-cuerpo">Ocultar gráfico</button></span></div>
-      <div class="cg-cuerpo" id="cg-cuerpo"><div class="chart" id="ch-cap"></div><div class="legend" id="lg-cap"></div></div>
+      <div class="cg-cuerpo" id="cg-cuerpo"><div class="chart" id="ch-cap"></div></div>
     </section>
-    <div id="grid-box"><div class="tw cap-wrap" role="region" tabindex="0" aria-label="Captura del forecast"><table class="cap" id="grid"></table></div></div>
+    <div id="grid-box"><div class="cap-wrap" role="region" aria-label="Captura del forecast"><div class="cap" id="grid" role="table" aria-label="Tu forecast por producto y mes"></div></div></div><!-- 094-CAPTURA: grilla con roles de tabla (antes <table>, de 25 en 25) -->
     <div id="grid-mas"></div>
-    <div class="insp vacio" id="insp" aria-live="polite"><span>Toca una casilla para ver sus referencias: pronóstico estimado, tu forecast anterior y la venta del mismo mes del año pasado.</span></div>
   </section>
 
   <section class="view" id="v-distribuidores" hidden>
@@ -901,8 +1190,8 @@ body.cargando>header,body.cargando>section,body.cargando>main{display:none}
 
 <script src="vendor/msal-browser.min.js?v=0b1d8bbc"></script>
 <script src="config.js?v=c3db3218"></script>
-<script src="app.js?v=b9932c4b"></script>
-<script src="portal.js?v=88edfb67"></script>
+<script src="app.js?v=1c51d2fb"></script>
+<script src="portal.js?v=f080bc34"></script>
 </body>
 </html>
 

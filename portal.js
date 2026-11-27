@@ -65,16 +65,17 @@
     return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
   }
 
-  /* Lee un archivo JSON (o .json.gz). Devuelve {datos, etag}; null si no existe. */
+  /* Lee un archivo JSON (o .json.gz). Devuelve {datos, etag, modificado}; null si no existe.
+     094: modificado = lastModifiedDateTime de OneDrive (cuándo llegó el archivo a la nube); la página lo muestra a BI junto a datos.json › generado. */
   async function leerJson(c, nombre) {
     let meta;
-    try { meta = await gj(item(c, nombre) + '?$select=id,eTag,size,@microsoft.graph.downloadUrl'); }
+    try { meta = await gj(item(c, nombre) + '?$select=id,eTag,size,lastModifiedDateTime,@microsoft.graph.downloadUrl'); }
     catch (e) { if (e.status === 404) return null; throw e; }
     const url = meta['@microsoft.graph.downloadUrl'];
     let r = null;
     if (url) { try { r = await fetch(url); if (!r.ok) r = null; } catch (e) { r = null; } }
     if (!r) r = await graph('GET', item(c, nombre) + ':/content');
-    return { datos: JSON.parse(await textoDe(r, nombre)), etag: meta.eTag };
+    return { datos: JSON.parse(await textoDe(r, nombre)), etag: meta.eTag, modificado: meta.lastModifiedDateTime || null };
   }
 
   /* Carpetas de KAM que esta cuenta puede abrir. */
@@ -330,7 +331,8 @@
     if (PARAMS.has('ordenes')) return abrirOrdenes(expo, persona, lista);
     const kam = (PARAMS.get('kam') || '').toUpperCase();
     if (!kam) return inicioBI(await Promise.all(lista.map(resumen)), persona, expo);
-    const D = await (await fetch(`/_local/${kam}/datos.json`)).json();
+    const rD = await fetch(`/_local/${kam}/datos.json`), D = await rD.json();
+    window.portalDatosEn = rD.headers.get('Last-Modified') || null;      // 094: en la demostración, la fecha del archivo local
     iniciar(D, almacen(null, D, demoPrevio(D), 'demo'), persona, lista, kam, !PARAMS.has('editar'), null, PARAMS.has('sinOrdenes') ? null : expo);      // 090-UNIDADES: con lo guardado en esta pestaña
   }
 
@@ -389,6 +391,7 @@
         } catch (e) { prueba.escritura = 'FALLA: ' + String(e.message || e); }
       }
       informar(prueba);
+      window.portalDatosEn = datos.modificado || null;      // 094: cuándo llegó datos.json a OneDrive (la línea de BI lo muestra)
       iniciar(datos.datos, almacen(c, datos.datos, captura, persona.correo, lectura), persona, lista, c.kam, lectura, c, expo);
     } catch (e) {
       prueba.error = String(e.message || e); informar(prueba);
